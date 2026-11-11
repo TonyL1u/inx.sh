@@ -1,0 +1,58 @@
+# dev
+.yarn/
+!.yarn/releases
+.vscode/*
+!.vscode/launch.json
+!.vscode/*.code-snippets
+.idea/workspace.xml
+.idea/usage.statistics.xml
+.idea/shelf
+
+# deps
+node_modules/
+
+# env
+.env
+.env.production
+
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# misc
+.DS_Store
+*.pem
+.commit
+.git-credentials
+.pnpm-store
+
+# build
+dist/
+coverage/
+build/
+
+# typescript
+*.tsbuildinfo
+
+# agent
+.logoscode
+.hallmark
+.agents
+.claude
+.opencode
+.impeccable
+
+# local INX data and credentials
+.env.*
+!.env.example
+*.key
+*.sqlite*
+/data/
+
+# Local project notes
+/docs/

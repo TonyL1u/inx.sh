@@ -1,0 +1,11 @@
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.json
+!packages/
+!packages/inx-control-api/
+!packages/inx-control-api/package.json
+!packages/inx-control-api/tsconfig*.json
+!packages/inx-control-api/src/
+!packages/inx-control-api/src/**
