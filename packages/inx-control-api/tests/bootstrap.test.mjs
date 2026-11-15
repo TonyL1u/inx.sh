@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import Fastify from 'fastify';
 
-import { registerBootstrap } from '../dist/bootstrap.js';
+import { registerBootstrap } from '../src/bootstrap.ts';
 
 const download = 'https://github.com/TonyL1u/inx.sh/releases/download/';
 const release = (tag, published, extra = {}) => ({ tag_name: tag, published_at: published, draft: false, prerelease: false, assets: [{ name: 'bootstrap' }], ...extra });

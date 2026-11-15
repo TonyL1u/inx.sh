@@ -1,8 +1,0 @@
-services:
-  control-api:
-    build:
-      context: ../..
-      dockerfile: packages/inx-control-api/Dockerfile
-    ports:
-      - "127.0.0.1:${CONTROL_API_PORT:-3100}:3100"
-    restart: unless-stopped

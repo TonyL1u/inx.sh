@@ -1,18 +1,23 @@
 {
-  "name": "@inx/control-api",
+  "name": "@inx.sh/control-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "pnpm run build && node --test tests/bootstrap.test.mjs",
+    "test": "node --import tsx --test tests/bootstrap.test.mjs",
     "lint": "eslint .",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsx esbuild.config.ts",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.mjs"
   },
   "dependencies": {
     "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
