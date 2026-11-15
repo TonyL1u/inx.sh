@@ -84,16 +84,23 @@ bash /release/bootstrap >/tmp/pair-again
 cmp /tmp/pair /tmp/pair-again
 inx-gateway pair | cmp - /tmp/pair
 /opt/inx-gateway/current/runtime/node --input-type=module <<'JS'
+import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {get} from 'node:https';
-import {checkServerIdentity} from 'node:tls';
+import {checkServerIdentity, connect} from 'node:tls';
+import {parsePair} from '/opt/inx-gateway/current/app/dist/config.js';
 const code = readFileSync('/tmp/pair', 'utf8').trim();
-if (!code.startsWith('inx-pair-')) throw Error('No pairing code');
-const p = JSON.parse(Buffer.from(code.slice(9), 'base64url'));
+if (code.length >= 100) throw Error('Pairing code is too long');
+const p = parsePair(code);
 if (p.endpoint !== 'https://198.51.100.42:3101') throw Error('Incorrect advertised endpoint');
-get('https://127.0.0.1:3101/v1/inbounds', {ca:p.ca, checkServerIdentity: (_, cert) => checkServerIdentity('198.51.100.42', cert), headers:{authorization:'Bearer '+p.token}}, res=>{
-  let body=''; res.on('data',chunk=>body+=chunk);
-  res.on('end',()=>{ if(res.statusCode!==200 || !Array.isArray(JSON.parse(body).inbounds)) throw Error('Pairing probe failed'); });
+const socket = connect({host: '127.0.0.1', port: 3101, rejectUnauthorized: false}, () => {
+  const cert = socket.getPeerX509Certificate();
+  socket.destroy();
+  if (createHash('sha256').update(cert.raw).digest('base64url') !== p.pin) throw Error('Certificate does not match the pairing code');
+  get('https://127.0.0.1:3101/v1/inbounds', {ca:cert.toString(), checkServerIdentity: (_, c) => checkServerIdentity('198.51.100.42', c), headers:{authorization:'Bearer '+p.token}}, res=>{
+    let body=''; res.on('data',chunk=>body+=chunk);
+    res.on('end',()=>{ if(res.statusCode!==200 || !Array.isArray(JSON.parse(body).inbounds)) throw Error('Pairing probe failed'); });
+  });
 });
 JS
 for cmd in node npm; do if command -v "$cmd"; then exit 1; fi; done

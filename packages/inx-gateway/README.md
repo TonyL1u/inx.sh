@@ -19,7 +19,9 @@ The installer verifies the download, unpacks the gateway and its Node.js runtime
 
 First-time setup requires exactly one public IPv4 address. Allow the controller to reach TCP port **3101**. Setup reuses native 3x-ui v3.11.0 or installs it on a clean VPS with the panel bound to loopback. It stops if it finds an unsupported panel or a partial installation.
 
-Setup saves credentials in `/etc/inx-gateway`, starts the systemd service, and prints a pairing code after checking HTTPS authentication. Treat the code as a password. Use `sudo inx-gateway pair` to display it again. Rerunning setup preserves the node identity and renews a certificate nearing expiry with the same CA.
+Setup saves credentials in `/etc/inx-gateway`, starts the systemd service, and prints a pairing code after checking HTTPS authentication. Treat the code as a password. Use `sudo inx-gateway pair` to display it again. Rerunning setup preserves the node identity and the self-signed certificate (valid for 10 years); a new certificate requires pairing again.
+
+The pairing code carries the endpoint, the gateway token, and the SHA-256 of the gateway certificate (`parsePair` in `src/config.ts` decodes it). A client completes one TLS handshake without verification and without sending anything, checks that the certificate's SHA-256 matches, and from then on uses that certificate as the trusted CA.
 
 ## HTTP API
 

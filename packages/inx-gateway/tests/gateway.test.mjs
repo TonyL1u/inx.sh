@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { Buffer } from 'node:buffer';
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { get } from 'node:https';
@@ -8,10 +8,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { test } from 'node:test';
+import { connect } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { pair, saveConfig } from '../dist/config.js';
+import { pair, parsePair, saveConfig } from '../dist/config.js';
 import { panelUrl } from '../dist/panel.js';
 
 const cli = fileURLToPath(new URL('../dist/index.js', import.meta.url));
@@ -28,6 +29,19 @@ function request(endpoint, path, ca, token) {
       res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(data) }));
     });
     req.on('error', reject);
+  });
+}
+// What a client does once per pairing: read the certificate from a handshake that sends nothing, then check the pin.
+function pinnedCert(endpoint, pin) {
+  const url = new URL(endpoint);
+  return new Promise((resolve, reject) => {
+    const socket = connect({ host: url.hostname, port: Number(url.port), rejectUnauthorized: false }, () => {
+      const cert = socket.getPeerX509Certificate();
+      socket.destroy();
+      if (createHash('sha256').update(cert.raw).digest('base64url') === pin) resolve(cert.toString());
+      else reject(Error('Certificate does not match the pairing code'));
+    });
+    socket.on('error', reject);
   });
 }
 
@@ -64,42 +78,38 @@ test('pairing, TLS, authorization and upstream failures across the actual CLI bo
   const endpoint = 'https://127.0.0.1:' + port;
   await exec('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1', '-out', 'cert.pem', '-keyout', 'key.pem'], { cwd: dir });
   const cert = await readFile(join(dir, 'cert.pem'), 'utf8');
-  const config = { id: 'test-node', endpoint, token: 'gateway-token', ca: cert, cert, key: await readFile(join(dir, 'key.pem'), 'utf8'), panel: { url: 'http://127.0.0.1:' + panel.address().port + '/base/', token: upstreamToken } };
+  const config = { id: 'test-node', endpoint, token: 'gatewayTokenForTestsAA', cert, key: await readFile(join(dir, 'key.pem'), 'utf8'), panel: { url: 'http://127.0.0.1:' + panel.address().port + '/base/', token: upstreamToken } };
   saveConfig(dir, config);
   const code = pair(config);
   assert.match(code, /^inx-pair-/);
-  const decode = s => JSON.parse(Buffer.from(s.slice(9), 'base64url').toString());
-  const identity = decode(code);
+  assert.ok(code.length < 100, 'Pairing code must stay under 100 characters: ' + code.length);
+  const identity = parsePair(code);
   assert.equal(identity.endpoint, endpoint);
-  assert.equal(identity.v, 1);
-  assert.deepEqual(Object.keys(identity).sort(), ['ca', 'endpoint', 'id', 'token', 'v']);
-  assert.ok(!JSON.stringify(identity).includes(upstreamToken));
+  assert.equal(identity.token, config.token);
   const child = spawn(process.execPath, [cli, 'serve'], { env: { ...process.env, CREDENTIALS_DIRECTORY: dir }, windowsHide: true, stdio: 'ignore' });
   const stopped = new Promise(resolve => child.once('exit', resolve));
   t.after(async () => {
     child.kill();
     await stopped;
   });
-  let live = false;
+  let ca;
   for (let i = 0; i < 80; i++) {
-    try {
-      live = (await request(endpoint, '/health', identity.ca)).status === 200;
-    } catch {
-      live = false;
-    }
-    if (live) break;
+    ca = await pinnedCert(endpoint, identity.pin).catch(() => undefined);
+    if (ca) break;
     await delay(50);
   }
-  assert.ok(live, 'Gateway must be reachable with the paired CA');
+  assert.ok(ca, 'Gateway must present the pinned certificate');
+  await assert.rejects(pinnedCert(endpoint, 'A'.repeat(43)), /does not match/);
+  assert.equal((await request(endpoint, '/health', ca)).status, 200);
   await assert.rejects(request(endpoint, '/health', undefined));
   const before = hits;
-  assert.equal((await request(endpoint, '/v1/inbounds', identity.ca, 'wrong')).status, 401);
+  assert.equal((await request(endpoint, '/v1/inbounds', ca, 'wrong')).status, 401);
   assert.equal(hits, before);
-  const call = () => request(endpoint, '/v1/inbounds', identity.ca, identity.token);
+  const call = () => request(endpoint, '/v1/inbounds', ca, identity.token);
   assert.deepEqual((await call()).body, { inbounds: [{ id: 1, remark: 'JP', enabled: true, protocol: 'vless', port: 443 }] });
-  const info = (await request(endpoint, '/v1/info', identity.ca, identity.token)).body;
+  const info = (await request(endpoint, '/v1/info', ca, identity.token)).body;
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(info.id, identity.id);
+  assert.equal(info.id, config.id);
   assert.equal(info.version, manifest.version);
   assert.equal(await run('--version'), manifest.version);
   for (const [up, reason] of [

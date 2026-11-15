@@ -22,20 +22,18 @@ function run(bin: string, args: string[], label: string, cwd?: string) {
 }
 function tls(dir: string, endpoint: string, old?: Config) {
   const host = new URL(endpoint).hostname.replace(/^\[|\]$/g, '');
-  if (old && matchesHost(old.cert, host)) return { ca: old.ca, cert: old.cert, key: old.key };
-  const caKey = join(dir, 'ca.key');
-  const caCert = join(dir, 'ca.pem');
+  if (old && matchesHost(old.cert, host)) return { cert: old.cert, key: old.key };
   const tmp = mkdtempSync(join(dir, 'tls-'));
-  const openssl = (...args: string[]) => run('openssl', args, 'OpenSSL', tmp);
   try {
-    if (!existsSync(caKey) && !existsSync(caCert) && !old) {
-      openssl('req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-days', '3650', '-keyout', caKey, '-out', caCert, '-subj', '/CN=INX Gateway CA', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign,cRLSign');
-    }
-    if (!existsSync(caKey) || !existsSync(caCert)) throw Error('Gateway CA is incomplete. Restore its files before continuing.');
-    openssl('req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'server.key', '-out', 'server.csr', '-subj', '/CN=INX Gateway');
-    writeFileSync(join(tmp, 'ext.cnf'), 'basicConstraints=critical,CA:FALSE\nextendedKeyUsage=serverAuth\nsubjectAltName=' + (isIP(host) ? 'IP:' : 'DNS:') + host + '\n');
-    openssl('x509', '-req', '-in', 'server.csr', '-CA', caCert, '-CAkey', caKey, '-set_serial', '0x' + randomUUID().replaceAll('-', ''), '-days', '365', '-extfile', 'ext.cnf', '-out', 'server.pem');
-    return { ca: readFileSync(caCert, 'utf8'), cert: readFileSync(join(tmp, 'server.pem'), 'utf8'), key: readFileSync(join(tmp, 'server.key'), 'utf8') };
+    // Self-signed: the pairing code pins this certificate, so there is no CA.
+    const san = 'subjectAltName=' + (isIP(host) ? 'IP:' : 'DNS:') + host;
+    run(
+      'openssl',
+      ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '3650', '-keyout', 'server.key', '-out', 'server.pem', '-subj', '/CN=INX Gateway', '-addext', 'extendedKeyUsage=serverAuth', '-addext', san],
+      'OpenSSL',
+      tmp
+    );
+    return { cert: readFileSync(join(tmp, 'server.pem'), 'utf8'), key: readFileSync(join(tmp, 'server.key'), 'utf8') };
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -64,7 +62,7 @@ function checkGateway(c: Config) {
         hostname: host.includes(':') ? '::1' : '127.0.0.1',
         port: url.port || 443,
         path: '/v1/info',
-        ca: c.ca,
+        ca: c.cert,
         servername: isIP(host) ? undefined : host,
         checkServerIdentity: (_, cert) => checkServerIdentity(host, cert),
         headers: { authorization: 'Bearer ' + c.token },
@@ -174,7 +172,8 @@ export async function setup() {
         await new Promise(r => setTimeout(r, 250));
       }
     }
-    const config = { id, endpoint, token: old?.token ?? secret(), panel, ...pem };
+    const token = old && Buffer.from(old.token, 'base64url').length === 16 ? old.token : secret(16);
+    const config = { id, endpoint, token, panel, ...pem };
     saveConfig(dir, config);
     if (existsSync(pending)) rmSync(pending);
     systemService();
