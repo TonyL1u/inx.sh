@@ -4,7 +4,7 @@ INX Gateway runs on a VPS and exposes the local 3x-ui inbound list over HTTPS. C
 
 ## Install and pair
 
-On a Debian 12 or 13 VPS (amd64 or arm64) with systemd, Bash, curl, tar, sha256sum, and OpenSSL, choose one installer URL:
+On a glibc-based Linux VPS (amd64 or arm64) with systemd, Bash, curl, tar, sha256sum, and OpenSSL, choose one installer URL:
 
 ```sh
 # Most recently published stable Gateway release
@@ -12,7 +12,7 @@ curl -fsSL https://inx.sh/bootstrap | sudo bash
 
 # Pin a stable release or opt into a beta
 curl -fsSL https://inx.sh/bootstrap/0.1.0 | sudo bash
-curl -fsSL https://inx.sh/bootstrap/0.1.0-beta.0 | sudo bash
+curl -fsSL https://inx.sh/bootstrap/0.1.0-beta.1 | sudo bash
 ```
 
 The installer verifies the download, unpacks the gateway and its Node.js runtime under `/opt/inx-gateway`, and runs setup. If the VPS already has system-wide Node.js 22.18+ and the npm package is published, use `sudo npm install -g @inx.sh/gateway` followed by `sudo inx-gateway setup`.

@@ -9,7 +9,7 @@ docker compose -f packages/inx-control-api/docker-compose.yaml up -d --build --w
 
 curl -fsS http://127.0.0.1:3100/health
 
-curl -sSI http://127.0.0.1:3100/bootstrap/0.1.0-beta.0
+curl -sSI http://127.0.0.1:3100/bootstrap/0.1.0-beta.1
 ```
 
 The health check returns JSON. The pinned installer URL returns a redirect to its GitHub Release asset. The container needs outbound HTTPS to GitHub to resolve the latest release at `/bootstrap`.

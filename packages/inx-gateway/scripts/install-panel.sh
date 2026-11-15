@@ -2,9 +2,8 @@
 # Fresh installs only. Never run an upstream installer over an existing panel.
 set -euo pipefail
 umask 077
-source /etc/os-release
-[[ $EUID == 0 && $ID == debian && ($VERSION_ID == 12 || $VERSION_ID == 13) ]] || { echo 'Requires Debian 12/13 and root.' >&2; exit 1; }
-for cmd in systemctl tar curl openssl sha256sum; do command -v "$cmd" >/dev/null; done
+[[ $EUID == 0 ]] || { echo 'Requires root.' >&2; exit 1; }
+for cmd in systemctl tar curl openssl sha256sum; do command -v "$cmd" >/dev/null || { echo "Requires $cmd." >&2; exit 1; }; done
 for path in /usr/local/x-ui /etc/x-ui /etc/default/x-ui /usr/bin/x-ui /etc/systemd/system/x-ui.service; do
   [[ ! -e "$path" && ! -L "$path" ]] || { echo "Existing $path; refusing fresh install." >&2; exit 1; }
 done
