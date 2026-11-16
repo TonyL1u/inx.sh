@@ -8,6 +8,9 @@
     "type": "git",
     "url": "git+https://github.com/TonyL1u/inx.sh.git"
   },
+  "scripts": {
+    "test": "pnpm -r test"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.18.0",
@@ -18,8 +21,10 @@
     "globals": "^17.12.0",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
+    "rimraf": "^6.1.4",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.69.0"
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^5.1.0"
   }
 }

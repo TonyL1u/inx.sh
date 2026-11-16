@@ -25,10 +25,10 @@ The pairing code carries the endpoint, the gateway token, and the SHA-256 of the
 
 ## HTTP API
 
-| GET | Authentication | Response |
-| --- | --- | --- |
-| `/health` | None | Service name and API version; does not query the panel |
-| `/v1/info` | Gateway bearer token | Node ID, version, and capabilities |
+| GET            | Authentication       | Response                                                                |
+| -------------- | -------------------- | ----------------------------------------------------------------------- |
+| `/health`      | None                 | Service name and API version; does not query the panel                  |
+| `/v1/info`     | Gateway bearer token | Node ID, version, and capabilities                                      |
 | `/v1/inbounds` | Gateway bearer token | `inbounds` array with `id`, `remark`, `protocol`, `port`, and `enabled` |
 
 A `401` means the gateway token is missing or invalid. A `502` indicates a panel error; the response includes the reason. A panel timeout returns `504`.
@@ -37,14 +37,9 @@ A `401` means the gateway token is missing or invalid. A `502` indicates a panel
 
 From the repository root, run `pnpm --filter @inx.sh/gateway test` with OpenSSL on your PATH. The suite runs the CLI against a local test panel over a real TLS connection to the gateway.
 
-Build once per architecture on Linux using the official Node.js 24 LTS distribution and the workspace's pinned pnpm version:
+Build releases with CI: push a Git tag exactly equal to the Gateway's `package.json` version. GitHub Actions runs the tests, builds both architecture bundles on native Linux runners, and creates the release with all five files (both archives, both checksums, and the generated `bootstrap`). Tags with `-` are automatically marked prereleases; the default installer only selects stable releases. A `workflow_dispatch` run builds without publishing.
 
-```sh
-pnpm install --frozen-lockfile
-bash packages/inx-gateway/scripts/build-linux-bundle.sh
-```
-
-The Gateway's `package.json` sets the CLI version, archive names, installer URL, and GitHub tag. Attach the five files from `packages/inx-gateway/release/<version>/` to a release tagged exactly `<version>`: both archives, both checksums, and the generated `bootstrap`. Mark beta releases as prereleases. The default installer only selects stable releases.
+Alternatively, on a Linux machine: `pnpm install --frozen-lockfile && bash packages/inx-gateway/scripts/build-linux-bundle.sh`.
 
 [Start the control API with Docker Compose](../inx-control-api/README.md). On the host serving `inx.sh`, forward `/bootstrap` and `/bootstrap/*` to the API, preserving the path. For example, inside the Nginx HTTPS server block:
 

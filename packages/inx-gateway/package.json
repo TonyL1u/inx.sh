@@ -23,12 +23,12 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
     "build": "tsc -p tsconfig.build.json",
+    "build:release": "bash scripts/build-linux-bundle.sh",
+    "typecheck": "pnpm run build && tsc --noEmit",
+    "lint": "eslint .",
+    "test": "pnpm run build && vitest run",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js serve",
-    "test": "pnpm run build && node --test tests/gateway.test.mjs",
     "prepack": "tsc -p tsconfig.build.json"
   },
   "dependencies": {

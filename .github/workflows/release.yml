@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify tag matches gateway version
+        if: github.event_name == 'push'
+        run: |
+          version=$(node -p "require('./packages/inx-gateway/package.json').version")
+          [[ "$version" == "${{ github.ref_name }}" ]] || { echo "Tag ${{ github.ref_name }} does not match gateway version $version" >&2; exit 1; }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @inx.sh/gateway test
+      - run: bash packages/inx-gateway/scripts/build-linux-bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: packages/inx-gateway/release/
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          pattern: release-*
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${{ github.ref_name }}
+          args=(--title "$version" --notes "Gateway $version" )
+          [[ "$version" == *-* ]] && args+=(--prerelease)
+          gh release create "$version" assets/* "${args[@]}"

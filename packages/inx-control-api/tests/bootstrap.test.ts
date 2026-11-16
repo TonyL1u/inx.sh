@@ -1,16 +1,26 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
 
 import Fastify from 'fastify';
+import { test, type TestContext } from 'vitest';
 
-import { registerBootstrap } from '../src/bootstrap.ts';
+import { registerBootstrap } from '../src/bootstrap.js';
+
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+interface Release {
+  tag_name: string;
+  published_at: string;
+  draft: boolean;
+  prerelease: boolean;
+  assets: { name: string }[];
+}
 
 const download = 'https://github.com/TonyL1u/inx.sh/releases/download/';
-const release = (tag, published, extra = {}) => ({ tag_name: tag, published_at: published, draft: false, prerelease: false, assets: [{ name: 'bootstrap' }], ...extra });
-function server(t, request) {
+const release = (tag: string, published: string, extra: Partial<Release> = {}): Release => ({ tag_name: tag, published_at: published, draft: false, prerelease: false, assets: [{ name: 'bootstrap' }], ...extra });
+function server(t: TestContext, request: FetchLike) {
   const app = Fastify();
   registerBootstrap(app, request);
-  t.after(() => app.close());
+  t.onTestFinished(() => app.close());
   return app;
 }
 
@@ -27,7 +37,7 @@ test('a pinned URL selects exactly one installer without consulting latest', asy
 });
 
 test('latest uses the newest published stable gateway across pages and shares the lookup', async t => {
-  const seen = [];
+  const seen: (string | null)[] = [];
   const app = server(t, async url => {
     const page = new URL(url).searchParams.get('page');
     seen.push(page);
@@ -48,7 +58,7 @@ test('latest uses the newest published stable gateway across pages and shares th
 
 test('lookup failures are retried; an empty catalog does not return an installer', async t => {
   let calls = 0;
-  const app = server(t, () => (++calls === 1 ? new Response(null, { status: 403 }) : Response.json([])));
+  const app = server(t, async () => (++calls === 1 ? new Response(null, { status: 403 }) : Response.json([])));
   const failed = await app.inject('/bootstrap');
   assert.equal(failed.statusCode, 503);
   assert.equal(failed.headers.location, undefined);

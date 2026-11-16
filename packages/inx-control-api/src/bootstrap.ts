@@ -7,6 +7,8 @@ const stable = new RegExp(`^${core}$`);
 const pinned = new RegExp(`^${core}(?:-beta\\.${number})?$`);
 const cacheMs = 60_000;
 
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
 interface Release {
   tag_name: string;
   draft: boolean;
@@ -16,7 +18,7 @@ interface Release {
 }
 
 // Other packages may publish releases in the same repository.
-async function latestGateway(request: typeof fetch) {
+async function latestGateway(request: FetchLike) {
   let newest: { version: string; published: number } | undefined;
   const signal = AbortSignal.timeout(8000);
   for (let page = 1; ; page++) {
@@ -33,7 +35,7 @@ async function latestGateway(request: typeof fetch) {
   }
 }
 
-export function registerBootstrap(app: FastifyInstance, request: typeof fetch = fetch) {
+export function registerBootstrap(app: FastifyInstance, request: FetchLike = fetch) {
   const asset = (v: string) => `https://github.com/${repo}/releases/download/${v}/bootstrap`;
   let cache: { version: string | undefined; until: number } | undefined;
   let pending: Promise<string | undefined> | undefined;
