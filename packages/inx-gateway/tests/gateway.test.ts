@@ -53,7 +53,7 @@ function pinnedCert(endpoint: string, pin: string) {
 }
 
 test('commands reject custom options and positional arguments', async () => {
-  for (const command of ['setup', 'pair', 'serve']) {
+  for (const command of ['start', 'stop', 'uninstall', 'pair']) {
     await assert.rejects(run(command, '--state-dir', '/tmp'), /unknown option/);
     await assert.rejects(run(command, 'unexpected'), /too many arguments/);
   }
@@ -98,7 +98,7 @@ test('pairing, TLS, authorization and upstream failures across the actual CLI bo
   const identity = parsePair(code);
   assert.equal(identity.endpoint, endpoint);
   assert.equal(identity.token, config.token);
-  const child = spawn(process.execPath, [cli, 'serve'], { env: { ...process.env, CREDENTIALS_DIRECTORY: dir }, windowsHide: true, stdio: 'ignore' });
+  const child = spawn(process.execPath, [cli], { env: { ...process.env, CREDENTIALS_DIRECTORY: dir }, windowsHide: true, stdio: 'ignore' });
   const stopped = new Promise(resolve => child.once('exit', resolve));
   t.onTestFinished(async () => {
     child.kill();

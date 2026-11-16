@@ -41,7 +41,7 @@ export function pair(config: Config) {
   const url = new URL(config.endpoint);
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const token = Buffer.from(config.token, 'base64url');
-  if (token.length !== 16) throw Error('This Gateway token predates short pairing codes. Rerun setup.');
+  if (token.length !== 16) throw Error('This Gateway token predates short pairing codes. Rerun start.');
   const port = Buffer.alloc(2);
   port.writeUInt16BE(Number(url.port || 443));
   const addr = isIPv4(host) ? Buffer.from([4, ...host.split('.').map(Number)]) : Buffer.concat([Buffer.from([0]), Buffer.from(host)]);

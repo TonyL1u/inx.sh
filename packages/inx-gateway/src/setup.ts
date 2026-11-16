@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { get } from 'node:https';
 import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
@@ -12,6 +12,8 @@ import { type Config, gatewayUrl, matchesHost, pair, readConfig, saveConfig, sec
 import { listInbounds, PanelError, panelUrl } from './panel.js';
 
 export const defaultDir = '/etc/inx-gateway';
+
+const say = (s: string) => console.error('==> ' + s);
 
 function run(bin: string, args: string[], label: string, cwd?: string) {
   try {
@@ -102,7 +104,7 @@ function systemService() {
       '[Service]',
       'DynamicUser=yes',
       'LoadCredential=config.json:/etc/inx-gateway/config.json',
-      'ExecStart=' + paths.join(' ') + ' serve',
+      'ExecStart=' + paths.join(' '),
       'Restart=on-failure',
       'RestartSec=2',
       'NoNewPrivileges=yes',
@@ -121,7 +123,7 @@ function systemService() {
   for (const args of [['daemon-reload'], ['enable', 'inx-gateway'], ['restart', 'inx-gateway']]) run('systemctl', args, 'systemctl ' + args.join(' '));
 }
 
-export async function setup() {
+export async function start() {
   if (process.platform !== 'linux' || process.getuid?.() !== 0) throw Error('Service setup requires Linux/systemd and root.');
   const dir = defaultDir;
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -137,6 +139,7 @@ export async function setup() {
     const fresh = !old && !existsSync(bin);
     if (fresh) {
       execFileSync('/bin/bash', [fileURLToPath(new URL('../scripts/install-panel.sh', import.meta.url))], { stdio: ['ignore', 2, 2], timeout: 300000 });
+      writeFileSync(join(dir, 'panel-managed'), '', { mode: 0o600 });
     }
     let panelToken = old?.panel.token;
     let address = old?.panel.url;
@@ -163,31 +166,84 @@ export async function setup() {
       writeFileSync(pending, panelToken, { mode: 0o600, flag: 'wx' });
     }
     const panel = { ...old?.panel, url, token: panelToken };
+    if (fresh) say('Waiting for the panel to accept connections');
     for (let attempt = 0; ; attempt++) {
       try {
         await listInbounds(panel);
         break;
       } catch (e) {
         if (!fresh || attempt >= 20 || !(e instanceof PanelError) || e.code !== 'PANEL_UNREACHABLE') throw e;
+        process.stderr.write('.');
         await new Promise(r => setTimeout(r, 250));
       }
     }
+    if (fresh) process.stderr.write('\n');
     const token = old && Buffer.from(old.token, 'base64url').length === 16 ? old.token : secret(16);
     const config = { id, endpoint, token, panel, ...pem };
     saveConfig(dir, config);
     if (existsSync(pending)) rmSync(pending);
+    say('Installing the gateway systemd service');
     systemService();
+    say('Waiting for the gateway to come up (up to 30 seconds)');
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       try {
         await checkGateway(config);
+        process.stderr.write('\n');
         return pair(config);
       } catch {
+        process.stderr.write('.');
         await new Promise(r => setTimeout(r, 250));
       }
     }
-    throw Error('Gateway did not become ready within 30 seconds. Inspect journalctl -u inx-gateway; rerun setup after correcting the issue.');
+    throw Error('Gateway did not become ready within 30 seconds. Inspect journalctl -u inx-gateway; rerun start after correcting the issue.');
   } finally {
     rmSync(lock, { recursive: true, force: true });
   }
+}
+
+export function stop() {
+  if (process.platform !== 'linux' || process.getuid?.() !== 0) throw Error('Service control requires Linux/systemd and root.');
+  if (!existsSync('/etc/systemd/system/inx-gateway.service')) throw Error('Gateway service is not installed. Run inx-gateway start first.');
+  run('systemctl', ['stop', 'inx-gateway'], 'systemctl stop inx-gateway');
+  say('Gateway service stopped');
+}
+
+// Removes everything the installer set up. The 3x-ui panel is removed only when start() installed it (marker file);
+// a panel that already existed on the VPS is never touched.
+export function uninstall() {
+  if (process.platform !== 'linux' || process.getuid?.() !== 0) throw Error('Uninstall requires Linux/systemd and root.');
+  const link = '/usr/local/bin/inx-gateway';
+  const panelManaged = existsSync(join(defaultDir, 'panel-managed'));
+  let removedUnits = false;
+  if (existsSync('/etc/systemd/system/inx-gateway.service')) {
+    say('Stopping and removing the gateway service...');
+    for (const args of [
+      ['stop', 'inx-gateway'],
+      ['disable', 'inx-gateway']
+    ])
+      run('systemctl', args, 'systemctl ' + args.join(' '));
+    rmSync('/etc/systemd/system/inx-gateway.service');
+    removedUnits = true;
+  }
+  if (panelManaged) {
+    say('Removing the 3x-ui panel installed by the gateway...');
+    if (existsSync('/etc/systemd/system/x-ui.service')) {
+      for (const args of [
+        ['stop', 'x-ui'],
+        ['disable', 'x-ui']
+      ])
+        run('systemctl', args, 'systemctl ' + args.join(' '));
+      rmSync('/etc/systemd/system/x-ui.service');
+      removedUnits = true;
+    }
+    rmSync('/etc/systemd/system/x-ui.service.d', { recursive: true, force: true });
+    for (const path of ['/usr/local/x-ui', '/etc/x-ui', '/etc/default/x-ui', '/var/log/x-ui']) rmSync(path, { recursive: true, force: true });
+  }
+  if (removedUnits) run('systemctl', ['daemon-reload'], 'systemctl daemon-reload');
+  say('Removing gateway files...');
+  rmSync(defaultDir, { recursive: true, force: true });
+  rmSync('/opt/inx-gateway', { recursive: true, force: true });
+  if (lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink() && readlinkSync(link) === '/opt/inx-gateway/current/launch') rmSync(link);
+  say('Uninstalled the gateway' + (panelManaged ? ' and the 3x-ui panel it installed' : '') + '.');
 }

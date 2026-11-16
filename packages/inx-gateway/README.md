@@ -15,11 +15,13 @@ curl -fsSL https://inx.sh/bootstrap/0.1.0 | sudo bash
 curl -fsSL https://inx.sh/bootstrap/0.1.0-beta.1 | sudo bash
 ```
 
-The installer verifies the download, unpacks the gateway and its Node.js runtime under `/opt/inx-gateway`, and runs setup. If the VPS already has system-wide Node.js 22.18+ and the npm package is published, use `sudo npm install -g @inx.sh/gateway` followed by `sudo inx-gateway setup`.
+The installer verifies the download, unpacks the gateway and its Node.js runtime under `/opt/inx-gateway`, and runs `inx-gateway start`, which configures the node, starts the systemd service, and prints a pairing code. If the VPS already has system-wide Node.js 22.18+ and the npm package is published, use `sudo npm install -g @inx.sh/gateway` followed by `sudo inx-gateway start`.
 
-First-time setup requires exactly one public IPv4 address. Allow the controller to reach TCP port **3101**. Setup reuses native 3x-ui v3.11.0 or installs it on a clean VPS with the panel bound to loopback. It stops if it finds an unsupported panel or a partial installation.
+First-time setup requires exactly one public IPv4 address. Allow the controller to reach TCP port **3101**. Start reuses native 3x-ui v3.11.0 or installs it on a clean VPS with the panel bound to loopback. It stops if it finds an unsupported panel or a partial installation.
 
-Setup saves credentials in `/etc/inx-gateway`, starts the systemd service, and prints a pairing code after checking HTTPS authentication. Treat the code as a password. Use `sudo inx-gateway pair` to display it again. Rerunning setup preserves the node identity and the self-signed certificate (valid for 10 years); a new certificate requires pairing again.
+Start saves credentials in `/etc/inx-gateway`, starts the systemd service, and prints a pairing code after checking HTTPS authentication. Treat the code as a password. Use `sudo inx-gateway pair` to display it again, and `sudo inx-gateway stop` to stop the service. Rerunning start preserves the node identity and the self-signed certificate (valid for 10 years); a new certificate requires pairing again.
+
+`sudo inx-gateway uninstall` removes everything the installer set up: the gateway service, `/etc/inx-gateway`, `/opt/inx-gateway`, and the `/usr/local/bin/inx-gateway` link. It also removes the 3x-ui panel, but only when start installed it; a panel that already existed on the VPS is never touched.
 
 The pairing code carries the endpoint, the gateway token, and the SHA-256 of the gateway certificate (`parsePair` in `src/config.ts` decodes it). A client completes one TLS handshake without verification and without sending anything, checks that the certificate's SHA-256 matches, and from then on uses that certificate as the trusted CA.
 

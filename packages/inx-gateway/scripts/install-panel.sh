@@ -2,6 +2,7 @@
 # Fresh installs only. Never run an upstream installer over an existing panel.
 set -euo pipefail
 umask 077
+say() { echo "==> $*" >&2; }
 [[ $EUID == 0 ]] || { echo 'Requires root.' >&2; exit 1; }
 for cmd in systemctl tar curl openssl sha256sum; do command -v "$cmd" >/dev/null || { echo "Requires $cmd." >&2; exit 1; }; done
 for path in /usr/local/x-ui /etc/x-ui /etc/default/x-ui /usr/bin/x-ui /etc/systemd/system/x-ui.service; do
@@ -23,8 +24,10 @@ case "$(uname -m)" in
 esac
 stage=$(mktemp -d /usr/local/.inx-panel.XXXXXXXX)
 trap 'rm -rf -- "$stage"' EXIT
-curl --proto '=https' --proto-redir '=https' -fsSL --retry 2 --max-time 180 "https://github.com/MHSanaei/3x-ui/releases/download/v3.11.0/x-ui-linux-$arch.tar.gz" -o "$stage/release.tgz"
+say 'Downloading the 3x-ui panel (v3.11.0)...'
+curl --proto '=https' --proto-redir '=https' -fL -S --retry 2 --max-time 180 "https://github.com/MHSanaei/3x-ui/releases/download/v3.11.0/x-ui-linux-$arch.tar.gz" -o "$stage/release.tgz"
 cd "$stage"
+say 'Verifying the panel download...'
 echo "$sha  release.tgz" | sha256sum --check --status
 tar --no-same-owner -xzf release.tgz
 [[ -f x-ui/x-ui && -f "x-ui/bin/xray-linux-$arch" ]]
@@ -39,5 +42,6 @@ grep -Eq '^listenIP: 127\.0\.0\.1$' <<<"$listen" || { echo 'Cannot verify loopba
 install -m 0644 "$unit" /etc/systemd/system/x-ui.service
 install -d -m 0755 /etc/systemd/system/x-ui.service.d /var/log/x-ui
 printf '[Service]\nReadWritePaths=-/etc/x-ui -/var/log/x-ui\n' >/etc/systemd/system/x-ui.service.d/10-inx-paths.conf
+say 'Starting the panel service...'
 systemctl daemon-reload
 systemctl enable --now x-ui
