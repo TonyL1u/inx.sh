@@ -10,6 +10,8 @@ pnpm monorepo (pnpm@12.15.0 pinned via `packageManager`; Node 24 LTS). Three pac
 
 `.npmrc` points the registry at `https://registry.npmmirror.com`. `pnpm-workspace.yaml` only allows builds for `esbuild`.
 
+Gateway-related scripts, deps, and config live in `packages/inx-gateway/` — never create root-level `scripts/` or root scripts for gateway concerns. Publishing: bump the version in `packages/inx-gateway/package.json`, commit, then `pnpm --filter @inx.sh/gateway release` (tags and pushes; CI does the rest).
+
 ## Commands
 
 The only root script is `test` (recursive). Run from the repo root:

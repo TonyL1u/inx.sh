@@ -25,6 +25,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "build:release": "bash scripts/build-linux-bundle.sh",
+    "release": "bash scripts/release.sh",
     "typecheck": "pnpm run build && tsc --noEmit",
     "lint": "eslint .",
     "test": "pnpm run build && vitest run",
