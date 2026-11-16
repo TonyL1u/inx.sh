@@ -57,6 +57,7 @@ jobs:
           version=${{ github.ref_name }}
           files=$(find assets -type f | sort)
           echo "Uploading:"; echo "$files"
-          args=(--title "$version" --notes "Gateway $version")
+          gh release delete "$version" --yes || true
+          args=(--title "$version" --notes "Gateway $version" --clobber)
           [[ "$version" == *-* ]] && args+=(--prerelease)
           gh release create "$version" $files "${args[@]}"
