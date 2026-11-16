@@ -58,6 +58,6 @@ jobs:
           files=$(find assets -type f | sort)
           echo "Uploading:"; echo "$files"
           gh release delete "$version" --yes || true
-          args=(--title "$version" --notes "Gateway $version" --clobber)
+          args=(--title "$version" --notes "Gateway $version")
           [[ "$version" == *-* ]] && args+=(--prerelease)
           gh release create "$version" $files "${args[@]}"
