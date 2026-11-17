@@ -11,6 +11,8 @@ export interface Config {
   secretKey: Buffer;
   consoleDir?: string;
   trustProxy: string[];
+  /** Background machine sync period; 0 disables it. */
+  syncIntervalMs: number;
 }
 
 const privateNetworks = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
@@ -38,7 +40,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir,
     secretKey: parseSecretKey(secret),
     consoleDir,
-    trustProxy: env.INX_TRUST_PROXY ? env.INX_TRUST_PROXY.split(',').map(s => s.trim()) : privateNetworks
+    trustProxy: env.INX_TRUST_PROXY ? env.INX_TRUST_PROXY.split(',').map(s => s.trim()) : privateNetworks,
+    syncIntervalMs: Number(env.INX_SYNC_INTERVAL_SECONDS ?? 300) * 1000
   };
 }
 

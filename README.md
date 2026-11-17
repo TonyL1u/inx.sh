@@ -5,7 +5,7 @@ INX Connect is a self-hosted project for managing 3x-ui panels across VPS nodes.
 | Package | Current scope | Installed with |
 | --- | --- | --- |
 | [Gateway](packages/inx-gateway/README.md) | VPS installation, pairing, and inbound queries | `curl -fsSL https://inx.sh/bootstrap \| sudo bash` |
-| [Control API](packages/inx-control-api/README.md) | Controller: SQLite storage, admin login, serves the console; Docker image `inxsh/inx-connect` | `curl -fsSL https://inx.sh/connect \| sudo bash` |
+| [Control API](packages/inx-control-api/README.md) | Controller: admin login, pairs and syncs machines (gateways), serves the console; Docker image `inxsh/inx-connect` | `curl -fsSL https://inx.sh/connect \| sudo bash` |
 | [Console](packages/inx-console/) | React + Vite web UI, bundled into the controller image | — |
 
 ## Development

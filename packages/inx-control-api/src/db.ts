@@ -11,7 +11,24 @@ const migrations = [
   `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
    CREATE TABLE admin (id INTEGER PRIMARY KEY CHECK (id = 1), password_hash TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT;
    CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT;
-   CREATE TABLE setup_codes (code_hash TEXT PRIMARY KEY, reset INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT;`
+   CREATE TABLE setup_codes (code_hash TEXT PRIMARY KEY, reset INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT;`,
+  // Machines: one row per paired Gateway. inbounds holds the last successful sync (JSON) and is kept while the node is unreachable.
+  `CREATE TABLE machines (
+     id INTEGER PRIMARY KEY,
+     node_id TEXT NOT NULL UNIQUE,
+     name TEXT NOT NULL,
+     endpoint TEXT NOT NULL,
+     cert_pin TEXT NOT NULL,
+     cert_pem TEXT NOT NULL,
+     token_sealed TEXT NOT NULL,
+     gateway_version TEXT NOT NULL,
+     capabilities TEXT NOT NULL,
+     inbounds TEXT NOT NULL,
+     synced_at INTEGER NOT NULL,
+     checked_at INTEGER NOT NULL,
+     last_error TEXT,
+     created_at INTEGER NOT NULL
+   ) STRICT;`
 ];
 
 export function openDb(path: string, secretKey: Buffer) {

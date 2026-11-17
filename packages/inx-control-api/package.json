@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@inx.sh/console": "workspace:*",
+    "@inx.sh/gateway": "workspace:*",
     "esbuild": "^0.28.2"
   }
 }

@@ -258,6 +258,9 @@ importers:
       '@inx.sh/console':
         specifier: workspace:*
         version: link:../inx-console
+      '@inx.sh/gateway':
+        specifier: workspace:*
+        version: link:../inx-gateway
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2

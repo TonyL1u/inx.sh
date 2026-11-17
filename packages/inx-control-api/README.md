@@ -26,6 +26,38 @@ sudo inx-connect setup-code --reset  # forgot the password: link that replaces i
 sudo inx-connect status | logs -f | restart
 ```
 
+## Machines
+
+Add a VPS in the console by pasting the pairing code that `inx-gateway start` (or `inx-gateway pair`) prints. The controller must reach the Gateway's endpoint, by default TCP 3101 on the VPS's public IPv4.
+
+Pairing is verified end to end before anything is stored:
+
+1. One TLS handshake, without sending anything, to check that the certificate's SHA-256 matches the pin in the code.
+2. `GET /v1/info` with the token, which records the node ID and Gateway version.
+3. `GET /v1/inbounds` for the first inbound snapshot.
+
+From then on, the pinned certificate is the only trusted CA and its fingerprint is checked on every connection. The token is stored sealed with `INX_SECRET_KEY`.
+
+Pasting a code from a node that is already paired (same node ID) refreshes its credentials instead of adding a duplicate. A machine's "re-pair" action only accepts a code from the same node. Each sync keeps the last successful inbound snapshot. When a check fails, the machine shows the error, for example offline, needs re-pairing, or panel error, while its inbounds stay available.
+
+| Route (session required) | Purpose |
+| --- | --- |
+| `GET /api/machines` | List with status, last error, inbound count, and sync times |
+| `POST /api/machines` `{ pairCode, name? }` | Pair. Returns 201 for a new machine, or 200 with `repaired: true` for a known node |
+| `GET /api/machines/:id` | Machine and its last inbound snapshot |
+| `PATCH /api/machines/:id` `{ name?, pairCode? }` | Rename, or re-pair with a code from the same node (`409 NODE_MISMATCH` otherwise) |
+| `POST /api/machines/:id/sync` | Sync now. A failure is recorded on the machine, not returned as an HTTP error |
+| `DELETE /api/machines/:id` | Forget the machine. The VPS is not touched |
+
+Pairing failures return `400 INVALID_PAIR_CODE` or `502` with one of these error codes:
+
+- `GATEWAY_UNREACHABLE`
+- `GATEWAY_TIMEOUT`
+- `GATEWAY_CERT_MISMATCH`
+- `GATEWAY_AUTH`
+- `GATEWAY_RESPONSE`
+- a `PANEL_*` code passed through from the Gateway
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -35,6 +67,8 @@ sudo inx-connect status | logs -f | restart
 | `HOST` / `PORT` | `0.0.0.0` / `3100` (image) | Listen address |
 | `INX_TRUST_PROXY` | private networks | Comma-separated addresses or CIDRs whose `X-Forwarded-*` headers are trusted |
 | `INX_CONSOLE_DIR` | `public/` next to the bundle | Console build to serve |
+| `INX_SYNC_INTERVAL_SECONDS` | `300` | How often every machine is re-synced in the background; `0` disables it |
+| `INX_GATEWAY_TIMEOUT_MS` | `10000` | Timeout for each request to a Gateway |
 
 ## Development
 
