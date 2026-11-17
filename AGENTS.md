@@ -8,11 +8,11 @@ pnpm monorepo (pnpm@12.15.0 pinned via `packageManager`; Node 24 LTS). Three pac
 - `packages/inx-control-api` — private fastify API: the self-hosted INX Connect controller. SQLite via built-in `node:sqlite` (migrations in `src/db.ts`, append-only, tracked by `PRAGMA user_version`), single-admin auth, serves the console from `dist/public`. Shipped as the Docker image `inxsh/inx-connect`.
 - `packages/inx-console` — private React 19 + Vite 8 + Tailwind 4 app (React Router, TanStack Query), bundled into the control API image.
 
-The installers are not in this branch: `bootstrap.sh` (gateway) and `connect.sh` (controller) live alone on the `main` branch, and `inx.sh/bootstrap` and `inx.sh/connect` 302 to their raw GitHub URLs. Never add an installer to a release.
+The installers `bootstrap.sh` (gateway) and `connect.sh` (controller) sit at the repository root. `inx.sh/bootstrap` and `inx.sh/connect` 302 to their raw GitHub URLs on the `main` branch, so `main` is what users run: change them on `main`, then merge `main` into the development branch. Never add an installer to a release.
 
 Packages install from the default npm registry (no `.npmrc`). `pnpm-workspace.yaml` only allows builds for `esbuild`.
 
-Gateway-related scripts, deps, and config live in `packages/inx-gateway/` — never create root-level `scripts/` or root scripts for gateway concerns. Publishing: bump the version in `packages/inx-gateway/package.json`, commit, then `pnpm --filter @inx.sh/gateway release` (tags and pushes; CI does the rest).
+Gateway-related scripts, deps, and config live in `packages/inx-gateway/` — never create root-level `scripts/` or other root scripts for gateway concerns (the root installers above are the only exception). Publishing: bump the version in `packages/inx-gateway/package.json`, commit, then `pnpm --filter @inx.sh/gateway release` (tags and pushes; CI does the rest).
 
 Controller publishing: bump `packages/inx-control-api/package.json`, commit, then `pnpm --filter @inx.sh/control-api release`. It pushes the tag `connect-v<version>`; `.github/workflows/connect.yml` builds the console and API on the runner, then pushes a multi-arch image to Docker Hub (`X.Y.Z`, `X.Y`, `latest`; betas get `X.Y.Z-beta.N` and `beta`). It never creates a GitHub Release — Releases are Gateway-only, and `bootstrap.sh` depends on `/releases/latest` being a Gateway.
 
@@ -42,8 +42,8 @@ pnpm --filter @inx.sh/control-api test
 - Releases are built by CI (`.github/workflows/gateway.yml`), never locally: push a tag exactly equal to the version and GitHub Actions runs the tests, builds both arch bundles on native Linux runners, and creates the release with four assets (two archives, two checksums). Tags with `-` are automatically marked prerelease (the default installer URL only resolves stable releases). `workflow_dispatch` triggers a build-only dry run (no release is created). The workflow hard-fails if the tag does not match the gateway version.
 - `packages/inx-gateway/scripts/build-linux-bundle.sh` is Linux-only by design (uses the runner's own Node as the bundled runtime and `sha256sum`); do not add cross-platform workarounds to it — that road leads to `node-linux-*` devDependencies whose `node` bin hijacks every `#!/usr/bin/env node` tool on macOS (tsc/vitest/tsx/eslint all break with "cannot execute binary file"). pnpm has no switch to suppress dependency bin links.
 - `dist/` ships with `.d.ts` files (declaration emit is on) for tests/npm; the release bundle uses `pnpm --prod deploy` output instead, so tests and configs never end up in artifacts.
-- `bootstrap.sh` (on `main`) installs the newest stable release via `/releases/latest`, or `--version X` exactly — a pinned version never falls back. It is version-agnostic: archive names `inx-gateway-<version>-linux-<arch>.tar.gz` and their `.sha256` files are its contract with the release, so do not rename them.
-- `tests/bootstrap-debian.sh` expects `bootstrap.sh` from `main` mounted at `/bootstrap.sh` (see the gateway README).
+- `bootstrap.sh` installs the newest stable release via `/releases/latest`, or `--version X` exactly — a pinned version never falls back. After unpacking it runs `inx-gateway start`, so keep that command. It is version-agnostic: archive names `inx-gateway-<version>-linux-<arch>.tar.gz` and their `.sha256` files are its contract with the release, so do not rename them.
+- `tests/bootstrap-debian.sh` expects the root `bootstrap.sh` mounted at `/bootstrap.sh` (see the gateway README).
 
 ## Code style and lint quirks
 

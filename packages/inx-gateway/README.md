@@ -39,19 +39,18 @@ A `401` means the gateway token is missing or invalid. A `502` indicates a panel
 
 From the repository root, run `pnpm --filter @inx.sh/gateway test` with OpenSSL on your PATH. The suite runs the CLI against a local test panel over a real TLS connection to the gateway.
 
-Build releases with CI: push a Git tag exactly equal to the Gateway's `package.json` version. GitHub Actions runs the tests, builds both architecture bundles on native Linux runners, and creates the release with four files: both archives and both checksums. The installer is not a release asset; it lives as `bootstrap.sh` on the `main` branch and works for every release. Tags with `-` are automatically marked prereleases; the default installer only selects stable releases. A `workflow_dispatch` run builds without publishing.
+Build releases with CI: push a Git tag exactly equal to the Gateway's `package.json` version. GitHub Actions runs the tests, builds both architecture bundles on native Linux runners, and creates the release with four files: both archives and both checksums. The installer is not a release asset; it is `bootstrap.sh` at the repository root, served from the `main` branch, and works for every release. Tags with `-` are automatically marked prereleases; the default installer only selects stable releases. A `workflow_dispatch` run builds without publishing.
 
 Alternatively, on a Linux machine: `pnpm install --frozen-lockfile && bash packages/inx-gateway/scripts/build-linux-bundle.sh`.
 
 The `inx.sh` host serves the installer redirects with Nginx; see [Hosting inx.sh](../../README.md#hosting-inxsh).
 
-To test a local release against native 3x-ui, run this from the repository root (use `linux/arm64` for the arm64 bundle). The installer comes from the `main` branch:
+To test a local release against native 3x-ui, run this from the repository root (use `linux/arm64` for the arm64 bundle):
 
 ```sh
-git fetch origin main && git show origin/main:bootstrap.sh > /tmp/bootstrap.sh
 docker run --rm --platform linux/amd64 --cpus=1 --memory=1g --memory-swap=1g \
   -v "$PWD/packages/inx-gateway/release/$(node -p "require('./packages/inx-gateway/package.json').version"):/release:ro" \
-  -v /tmp/bootstrap.sh:/bootstrap.sh:ro \
+  -v "$PWD/bootstrap.sh:/bootstrap.sh:ro" \
   -v "$PWD/packages/inx-gateway/tests:/tests:ro" \
   debian:bookworm-slim bash /tests/bootstrap-debian.sh
 ```

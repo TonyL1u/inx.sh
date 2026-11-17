@@ -23,7 +23,7 @@ See the [gateway guide](packages/inx-gateway/README.md) to install a node, test 
 
 ## Hosting inx.sh
 
-Both installers are plain files on the `main` branch (`bootstrap.sh` for the gateway, `connect.sh` for the controller); `main` holds nothing else. The `inx.sh` host only redirects to them. Inside the Nginx HTTPS server block:
+Both installers are plain files at the repository root (`bootstrap.sh` for the gateway, `connect.sh` for the controller). The `inx.sh` host redirects to their copies on the `main` branch; change them on `main` and merge `main` into the development branch. Inside the Nginx HTTPS server block:
 
 ```nginx
 location = /bootstrap {
