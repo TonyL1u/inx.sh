@@ -66,7 +66,7 @@ main() {
   ln -s "$release" "$stage/current"
   mv -Tf "$stage/current" /opt/inx-gateway/current
   if [[ ! -L "$link" ]]; then ln -s /opt/inx-gateway/current/launch "$link"; fi
-  "$link" setup
+  "$link" start
 }
 
 # Wrapped in main so a truncated download never runs a partial script.
