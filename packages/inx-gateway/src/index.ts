@@ -5,7 +5,7 @@ import { Command } from 'commander';
 
 import { pair, readConfig } from './config.js';
 import { createGateway } from './server.js';
-import { defaultDir, start, stop, uninstall } from './setup.js';
+import { defaultDir, start, status, stop, uninstall } from './setup.js';
 import { version } from './version.js';
 
 // The systemd unit runs the gateway with no arguments.
@@ -30,6 +30,10 @@ cli
   .command('stop')
   .description('Stop the gateway service')
   .action(() => stop());
+cli
+  .command('status')
+  .description('Show whether the gateway service is running')
+  .action(() => status());
 cli
   .command('uninstall')
   .description('Stop and remove the gateway, its service and all installed files')

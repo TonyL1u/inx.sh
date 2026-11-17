@@ -209,6 +209,19 @@ export function stop() {
   say('Gateway service stopped');
 }
 
+export function status() {
+  if (process.platform !== 'linux') throw Error('Gateway service requires Linux/systemd.');
+  if (!existsSync('/etc/systemd/system/inx-gateway.service')) throw Error('Gateway service is not installed. Run inx-gateway start first.');
+  let state: string;
+  try {
+    state = execFileSync('systemctl', ['is-active', 'inx-gateway'], { encoding: 'utf8' }).trim();
+  } catch (e) {
+    state = (e as { stdout?: string }).stdout?.trim() ?? 'unknown';
+  }
+  const enabled = execFileSync('systemctl', ['is-enabled', 'inx-gateway'], { encoding: 'utf8' }).trim();
+  say('Gateway service is ' + state + (enabled === 'enabled' ? ' (enabled at boot)' : ' (' + enabled + ' at boot)'));
+}
+
 // Removes everything the installer set up. The 3x-ui panel is removed only when start() installed it (marker file);
 // a panel that already existed on the VPS is never touched.
 export function uninstall() {

@@ -53,7 +53,7 @@ function pinnedCert(endpoint: string, pin: string) {
 }
 
 test('commands reject custom options and positional arguments', async () => {
-  for (const command of ['start', 'stop', 'uninstall', 'pair']) {
+  for (const command of ['start', 'stop', 'status', 'uninstall', 'pair']) {
     await assert.rejects(run(command, '--state-dir', '/tmp'), /unknown option/);
     await assert.rejects(run(command, 'unexpected'), /too many arguments/);
   }
