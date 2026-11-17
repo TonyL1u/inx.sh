@@ -28,7 +28,32 @@ const migrations = [
      checked_at INTEGER NOT NULL,
      last_error TEXT,
      created_at INTEGER NOT NULL
-   ) STRICT;`
+   ) STRICT;`,
+  // Nodes pick one client of one inbound on a machine; subscriptions are ordered sets of nodes.
+  // Inbound and client are matched against the machine's snapshot on use, so a node survives a temporarily missing inbound.
+  `CREATE TABLE nodes (
+     id INTEGER PRIMARY KEY,
+     machine_id INTEGER NOT NULL REFERENCES machines (id) ON DELETE CASCADE,
+     inbound_id INTEGER NOT NULL,
+     client_email TEXT NOT NULL,
+     name TEXT NOT NULL,
+     created_at INTEGER NOT NULL,
+     UNIQUE (machine_id, inbound_id, client_email)
+   ) STRICT;
+   CREATE TABLE subscriptions (
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL,
+     token TEXT NOT NULL UNIQUE,
+     created_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL
+   ) STRICT;
+   CREATE TABLE subscription_nodes (
+     subscription_id INTEGER NOT NULL REFERENCES subscriptions (id) ON DELETE CASCADE,
+     node_id INTEGER NOT NULL REFERENCES nodes (id) ON DELETE CASCADE,
+     position INTEGER NOT NULL,
+     PRIMARY KEY (subscription_id, node_id)
+   ) STRICT;
+   CREATE INDEX subscription_nodes_node ON subscription_nodes (node_id);`
 ];
 
 export function openDb(path: string, secretKey: Buffer) {
