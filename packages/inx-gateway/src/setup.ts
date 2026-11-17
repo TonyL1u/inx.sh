@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { get } from 'node:https';
 import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
@@ -14,6 +14,14 @@ import { listInbounds, PanelError, panelUrl } from './panel.js';
 export const defaultDir = '/etc/inx-gateway';
 // Survives uninstall, so a reinstalled node keeps its identity and the controller can re-pair it in place.
 export const nodeIdFile = '/var/lib/inx-gateway/node-id';
+
+// The x-ui management menu from the 3x-ui release, as its own installer provides it. Only for panels start() installed.
+function installXuiCommand() {
+  const script = '/usr/local/x-ui/x-ui.sh';
+  if (existsSync('/usr/bin/x-ui') || !existsSync(script)) return;
+  copyFileSync(script, '/usr/bin/x-ui');
+  chmodSync('/usr/bin/x-ui', 0o755);
+}
 
 function rememberedNodeId() {
   try {
@@ -158,18 +166,28 @@ export async function start() {
       execFileSync('/bin/bash', [fileURLToPath(new URL('../scripts/install-panel.sh', import.meta.url))], { stdio: ['ignore', 2, 2], timeout: 300000 });
       writeFileSync(join(dir, 'panel-managed'), '', { mode: 0o600 });
     }
+    if (existsSync(join(dir, 'panel-managed'))) installXuiCommand();
     let panelToken = old?.panel.token;
     let address = old?.panel.url;
     if (!address || !panelToken) {
       if (!existsSync(bin)) throw Error('Native 3x-ui panel not found.');
       if (!/^v?3\.11\.0$/.test(run(bin, ['-v'], '3x-ui version').trim())) throw Error('Automatic panel discovery requires 3x-ui v3.11.0. No panel settings changed.');
     }
-    if (!address) {
+    const discover = () => {
       const info = run(bin, ['setting', '-show'], 'Read panel settings');
       const port = /^port:\s*(\d+)\s*$/m.exec(info)?.[1],
         path = /^webBasePath:[ \t]*(\/[^\r\n]*)/m.exec(info)?.[1];
       if (!port || !path) throw Error('Cannot determine the local panel port or base path.');
-      address = (info.includes('Panel is secure with SSL') ? 'https' : 'http') + '://127.0.0.1:' + port + path.trim();
+      return (info.includes('Panel is secure with SSL') ? 'https' : 'http') + '://127.0.0.1:' + port + path.trim();
+    };
+    // Follow the panel on every start: its port or base path may have changed (for example from the x-ui menu).
+    if (!address) address = discover();
+    else if (existsSync(bin)) {
+      try {
+        address = discover();
+      } catch {
+        // Keep the stored address; the connection check below reports a real problem.
+      }
     }
     const url = panelUrl(address);
     const pem = tls(dir, endpoint, old);
@@ -177,19 +195,30 @@ export async function start() {
     rememberNodeId(id);
     const pending = join(dir, 'pending-panel-token');
     if (!panelToken && existsSync(pending)) panelToken = readFileSync(pending, 'utf8').trim();
-    if (!panelToken) {
+    const mint = () => {
       const stdout = run(bin, ['setting', '-getApiToken', '-tokenName', 'inx-' + id, '-tokenScope', 'node-sync'], 'Mint panel token');
-      panelToken = /^apiToken:[ \t]*(\S+)\s*$/m.exec(stdout)?.[1];
-      if (!panelToken) throw Error('3x-ui did not issue a token.');
-      writeFileSync(pending, panelToken, { mode: 0o600, flag: 'wx' });
-    }
+      const minted = /^apiToken:[ \t]*(\S+)\s*$/m.exec(stdout)?.[1];
+      if (!minted) throw Error('3x-ui did not issue a token.');
+      rmSync(pending, { force: true });
+      writeFileSync(pending, minted, { mode: 0o600, flag: 'wx' });
+      return minted;
+    };
+    panelToken ??= mint();
     const panel = { ...old?.panel, url, token: panelToken };
+    // A stored token stops working if the panel's settings were reset; issue a new one once.
+    let reminted = !old;
     if (fresh) say('Waiting for the panel to accept connections');
     for (let attempt = 0; ; attempt++) {
       try {
         await listInbounds(panel);
         break;
       } catch (e) {
+        if (!reminted && e instanceof PanelError && e.code === 'PANEL_AUTH' && existsSync(bin)) {
+          say('The stored panel token was rejected; issuing a new one');
+          panel.token = mint();
+          reminted = true;
+          continue;
+        }
         if (!fresh || attempt >= 20 || !(e instanceof PanelError) || e.code !== 'PANEL_UNREACHABLE') throw e;
         process.stderr.write('.');
         await new Promise(r => setTimeout(r, 250));
@@ -269,7 +298,7 @@ export function uninstall() {
       removedUnits = true;
     }
     rmSync('/etc/systemd/system/x-ui.service.d', { recursive: true, force: true });
-    for (const path of ['/usr/local/x-ui', '/etc/x-ui', '/etc/default/x-ui', '/var/log/x-ui']) rmSync(path, { recursive: true, force: true });
+    for (const path of ['/usr/local/x-ui', '/etc/x-ui', '/etc/default/x-ui', '/var/log/x-ui', '/usr/bin/x-ui']) rmSync(path, { recursive: true, force: true });
   }
   if (removedUnits) run('systemctl', ['daemon-reload'], 'systemctl daemon-reload');
   say('Removing gateway files (keeping the node ID in ' + nodeIdFile + ')...');
