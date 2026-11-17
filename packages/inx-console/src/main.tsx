@@ -7,6 +7,8 @@ import { createBrowserRouter, Navigate, Outlet, RouterProvider, useLocation } fr
 
 import { api, ApiError, type Status } from './api';
 import { Login } from './pages/Login';
+import { MachineDetail } from './pages/machines/MachineDetail';
+import { Machines } from './pages/machines/Machines';
 import { Setup } from './pages/Setup';
 import { Shell } from './pages/Shell';
 import { Placeholder } from './ui';
@@ -47,7 +49,8 @@ const router = createBrowserRouter([
         element: <Shell />,
         children: [
           { index: true, element: <Navigate to="/machines" replace /> },
-          { path: '/machines', element: <Placeholder title="机器" description="粘贴节点配对码添加 VPS 的功能将在下一阶段提供。" /> },
+          { path: '/machines', element: <Machines /> },
+          { path: '/machines/:id', element: <MachineDetail /> },
           { path: '/nodes', element: <Placeholder title="节点" description="节点导入与管理将在机器接入完成后提供。" /> },
           { path: '/subscriptions', element: <Placeholder title="订阅" description="跨机器组合订阅将在节点管理完成后提供。" /> },
           { path: '*', element: <Navigate to="/machines" replace /> }

@@ -14,7 +14,7 @@ const key = randomBytes(32);
 
 async function server(t: TestContext, consoleDir?: string) {
   const db = openDb(':memory:', key);
-  const app = await buildApp({ consoleDir, trustProxy: [] }, db);
+  const app = await buildApp({ consoleDir, trustProxy: [], secretKey: key, syncIntervalMs: 0 }, db);
   t.onTestFinished(async () => {
     await app.close();
     db.close();

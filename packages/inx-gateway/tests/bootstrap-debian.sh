@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run in a disposable Debian 12 container with the local release mounted at /release
-# and bootstrap.sh (from the main branch) mounted at /bootstrap.sh.
+# and the repository's bootstrap.sh mounted at /bootstrap.sh.
 set -euo pipefail
 umask 077
 for cmd in node npm; do

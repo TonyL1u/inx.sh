@@ -12,6 +12,8 @@ await build({
   target: 'node24',
   format: 'esm',
   outfile: 'dist/index.mjs',
+  // Bundle @inx.sh/gateway/protocol from source (see the package's exports).
+  conditions: ['inx-source'],
   define: { __INX_VERSION__: JSON.stringify(version) },
   banner: {
     js: "import { createRequire as __createRequire } from 'module';\nconst require = __createRequire(import.meta.url);"

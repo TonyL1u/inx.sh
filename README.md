@@ -5,7 +5,7 @@ INX Connect is a self-hosted project for managing 3x-ui panels across VPS nodes.
 | Package | Current scope | Installed with |
 | --- | --- | --- |
 | [Gateway](packages/inx-gateway/README.md) | VPS installation, pairing, and inbound queries | `curl -fsSL https://inx.sh/bootstrap \| sudo bash` |
-| [Control API](packages/inx-control-api/README.md) | Controller: SQLite storage, admin login, serves the console; Docker image `inxsh/inx-connect` | `curl -fsSL https://inx.sh/connect \| sudo bash` |
+| [Control API](packages/inx-control-api/README.md) | Controller: admin login, pairs and syncs machines (gateways), serves the console; Docker image `inxsh/inx-connect` | `curl -fsSL https://inx.sh/connect \| sudo bash` |
 | [Console](packages/inx-console/) | React + Vite web UI, bundled into the controller image | — |
 
 ## Development
@@ -23,7 +23,7 @@ See the [gateway guide](packages/inx-gateway/README.md) to install a node, test 
 
 ## Hosting inx.sh
 
-Both installers are plain files on the `main` branch (`bootstrap.sh` for the gateway, `connect.sh` for the controller); `main` holds nothing else. The `inx.sh` host only redirects to them. Inside the Nginx HTTPS server block:
+Both installers are plain files at the repository root (`bootstrap.sh` for the gateway, `connect.sh` for the controller). The `inx.sh` host redirects to their copies on the `main` branch; change them on `main` and merge `main` into the development branch. Inside the Nginx HTTPS server block:
 
 ```nginx
 location = /bootstrap {
