@@ -4,18 +4,18 @@ INX Gateway runs on a VPS and exposes the local 3x-ui inbound list over HTTPS. C
 
 ## Install and pair
 
-On a glibc-based Linux VPS (amd64 or arm64) with systemd, Bash, curl, tar, sha256sum, and OpenSSL, choose one installer URL:
+On a glibc-based Linux VPS (amd64 or arm64) with systemd, Bash, curl, tar, sha256sum, and OpenSSL, run the installer:
 
 ```sh
 # Most recently published stable Gateway release
 curl -fsSL https://inx.sh/bootstrap | sudo bash
 
 # Pin a stable release or opt into a beta
-curl -fsSL https://inx.sh/bootstrap/0.1.0 | sudo bash
-curl -fsSL https://inx.sh/bootstrap/0.1.0-beta.1 | sudo bash
+curl -fsSL https://inx.sh/bootstrap | sudo bash -s -- --version 0.1.0
+curl -fsSL https://inx.sh/bootstrap | sudo bash -s -- --version 0.1.0-beta.2
 ```
 
-The installer verifies the download, unpacks the gateway and its Node.js runtime under `/opt/inx-gateway`, and runs `inx-gateway start`, which configures the node, starts the systemd service, and prints a pairing code. If the VPS already has system-wide Node.js 22.18+ and the npm package is published, use `sudo npm install -g @inx.sh/gateway` followed by `sudo inx-gateway start`.
+`https://inx.sh/bootstrap` redirects to `bootstrap.sh` on the repository's `main` branch. The script resolves the newest stable release from GitHub (`/releases/latest`) unless `--version` is given; a pinned version never falls back. The installer verifies the download, unpacks the gateway and its Node.js runtime under `/opt/inx-gateway`, and runs `inx-gateway start`, which configures the node, starts the systemd service, and prints a pairing code. If the VPS already has system-wide Node.js 22.18+ and the npm package is published, use `sudo npm install -g @inx.sh/gateway` followed by `sudo inx-gateway start`.
 
 First-time setup requires exactly one public IPv4 address. Allow the controller to reach TCP port **3101**. Start reuses native 3x-ui v3.11.0 or installs it on a clean VPS with the panel bound to loopback. It stops if it finds an unsupported panel or a partial installation.
 
@@ -39,25 +39,19 @@ A `401` means the gateway token is missing or invalid. A `502` indicates a panel
 
 From the repository root, run `pnpm --filter @inx.sh/gateway test` with OpenSSL on your PATH. The suite runs the CLI against a local test panel over a real TLS connection to the gateway.
 
-Build releases with CI: push a Git tag exactly equal to the Gateway's `package.json` version. GitHub Actions runs the tests, builds both architecture bundles on native Linux runners, and creates the release with all five files (both archives, both checksums, and the generated `bootstrap`). Tags with `-` are automatically marked prereleases; the default installer only selects stable releases. A `workflow_dispatch` run builds without publishing.
+Build releases with CI: push a Git tag exactly equal to the Gateway's `package.json` version. GitHub Actions runs the tests, builds both architecture bundles on native Linux runners, and creates the release with four files: both archives and both checksums. The installer is not a release asset; it lives as `bootstrap.sh` on the `main` branch and works for every release. Tags with `-` are automatically marked prereleases; the default installer only selects stable releases. A `workflow_dispatch` run builds without publishing.
 
 Alternatively, on a Linux machine: `pnpm install --frozen-lockfile && bash packages/inx-gateway/scripts/build-linux-bundle.sh`.
 
-[Start the control API with Docker Compose](../inx-control-api/README.md). On the host serving `inx.sh`, forward `/bootstrap` and `/bootstrap/*` to the API, preserving the path. For example, inside the Nginx HTTPS server block:
+The `inx.sh` host serves the installer redirects with Nginx; see [Hosting inx.sh](../../README.md#hosting-inxsh).
 
-```nginx
-location ~ ^/bootstrap(?:/|$) {
-    proxy_pass http://127.0.0.1:3100;
-}
-```
-
-The API redirects to the release's installer asset. The default URL checks GitHub for stable Gateway releases and caches the result for one minute. A pinned URL never falls back: if that asset is missing, GitHub returns 404.
-
-To test a local release against native 3x-ui, run this from the repository root (use `linux/arm64` for the arm64 bundle):
+To test a local release against native 3x-ui, run this from the repository root (use `linux/arm64` for the arm64 bundle). The installer comes from the `main` branch:
 
 ```sh
+git fetch origin main && git show origin/main:bootstrap.sh > /tmp/bootstrap.sh
 docker run --rm --platform linux/amd64 --cpus=1 --memory=1g --memory-swap=1g \
   -v "$PWD/packages/inx-gateway/release/$(node -p "require('./packages/inx-gateway/package.json').version"):/release:ro" \
+  -v /tmp/bootstrap.sh:/bootstrap.sh:ro \
   -v "$PWD/packages/inx-gateway/tests:/tests:ro" \
   debian:bookworm-slim bash /tests/bootstrap-debian.sh
 ```

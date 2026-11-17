@@ -1,12 +1,12 @@
 # INX Connect
 
-INX Connect is a self-hosted project for managing 3x-ui panels across VPS nodes. Each node runs a gateway that serves a read-only list of inbounds over HTTPS. The panel token stays on the node.
+INX Connect is a self-hosted project for managing 3x-ui panels across VPS nodes. Each node runs a gateway that serves a read-only list of inbounds over HTTPS. The panel token stays on the node. The controller (control API + console) runs on a host of your choice and manages the nodes.
 
-| Package | Current scope |
-| --- | --- |
-| [Gateway](packages/inx-gateway/README.md) | VPS installation, pairing, and inbound queries |
-| [Control API](packages/inx-control-api/README.md) | Docker deployment, health checks, and versioned gateway installer URLs |
-| [Console](packages/inx-console/) | React and Vite app with a placeholder page |
+| Package | Current scope | Installed with |
+| --- | --- | --- |
+| [Gateway](packages/inx-gateway/README.md) | VPS installation, pairing, and inbound queries | `curl -fsSL https://inx.sh/bootstrap \| sudo bash` |
+| [Control API](packages/inx-control-api/README.md) | Controller: SQLite storage, admin login, serves the console; Docker image `inxsh/inx-connect` | `curl -fsSL https://inx.sh/connect \| sudo bash` |
+| [Console](packages/inx-console/) | React + Vite web UI, bundled into the controller image | — |
 
 ## Development
 
@@ -20,3 +20,18 @@ pnpm -r build
 ```
 
 See the [gateway guide](packages/inx-gateway/README.md) to install a node, test the API, or build a Linux release.
+
+## Hosting inx.sh
+
+Both installers are plain files on the `main` branch (`bootstrap.sh` for the gateway, `connect.sh` for the controller); `main` holds nothing else. The `inx.sh` host only redirects to them. Inside the Nginx HTTPS server block:
+
+```nginx
+location = /bootstrap {
+    return 302 https://raw.githubusercontent.com/TonyL1u/inx.sh/main/bootstrap.sh;
+}
+location = /connect {
+    return 302 https://raw.githubusercontent.com/TonyL1u/inx.sh/main/connect.sh;
+}
+```
+
+GitHub serves raw files with a short cache (about five minutes), so an installer change on `main` reaches users shortly after it is pushed. GitHub Releases in this repository are Gateway releases only; `bootstrap.sh` relies on `/releases/latest` being the newest stable Gateway.

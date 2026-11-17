@@ -10,13 +10,17 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.107.1",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "react-router": "^8.5.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.3.5",
     "vite": "^8.0.8"
   }
 }
