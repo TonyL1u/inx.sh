@@ -6,6 +6,14 @@
   "bin": {
     "inx-gateway": "dist/index.js"
   },
+  "exports": {
+    "./protocol": {
+      "inx-source": "./src/protocol.ts",
+      "types": "./dist/protocol.d.ts",
+      "default": "./dist/protocol.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
     "scripts/install-panel.sh"
