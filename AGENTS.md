@@ -39,7 +39,7 @@ pnpm --filter @inx.sh/control-api test
 ## Gateway release flow (get this wrong and installs break)
 
 - `packages/inx-gateway/package.json` `version` must match `X.Y.Z` or `X.Y.Z-beta.N`; it drives installer URLs, archive names, and the GitHub release tag (tag must equal the version exactly).
-- Releases are built by CI (`.github/workflows/release.yml`), never locally: push a tag exactly equal to the version and GitHub Actions runs the tests, builds both arch bundles on native Linux runners, and creates the release with four assets (two archives, two checksums). Tags with `-` are automatically marked prerelease (the default installer URL only resolves stable releases). `workflow_dispatch` triggers a build-only dry run (no release is created). The workflow hard-fails if the tag does not match the gateway version.
+- Releases are built by CI (`.github/workflows/gateway.yml`), never locally: push a tag exactly equal to the version and GitHub Actions runs the tests, builds both arch bundles on native Linux runners, and creates the release with four assets (two archives, two checksums). Tags with `-` are automatically marked prerelease (the default installer URL only resolves stable releases). `workflow_dispatch` triggers a build-only dry run (no release is created). The workflow hard-fails if the tag does not match the gateway version.
 - `packages/inx-gateway/scripts/build-linux-bundle.sh` is Linux-only by design (uses the runner's own Node as the bundled runtime and `sha256sum`); do not add cross-platform workarounds to it — that road leads to `node-linux-*` devDependencies whose `node` bin hijacks every `#!/usr/bin/env node` tool on macOS (tsc/vitest/tsx/eslint all break with "cannot execute binary file"). pnpm has no switch to suppress dependency bin links.
 - `dist/` ships with `.d.ts` files (declaration emit is on) for tests/npm; the release bundle uses `pnpm --prod deploy` output instead, so tests and configs never end up in artifacts.
 - `bootstrap.sh` (on `main`) installs the newest stable release via `/releases/latest`, or `--version X` exactly — a pinned version never falls back. It is version-agnostic: archive names `inx-gateway-<version>-linux-<arch>.tar.gz` and their `.sha256` files are its contract with the release, so do not rename them.
@@ -54,5 +54,5 @@ pnpm --filter @inx.sh/control-api test
 - Prettier: printWidth 256, single quotes, no trailing commas, `arrowParens: avoid`, tailwind class sorting plugin. Enforced via ESLint.
 - All packages are ESM (`"type": "module"`).
 - LF line endings enforced via `.gitattributes`/`.editorconfig`.
-- CI is release-only (`release.yml` for the gateway, `connect.yml` for the controller image); no pre-commit hooks — verification is whatever you run yourself.
+- CI is release-only (`gateway.yml` for the gateway, `connect.yml` for the controller image); no pre-commit hooks — verification is whatever you run yourself.
 - `node:sqlite` prints an ExperimentalWarning; the image runs node with `--disable-warning=ExperimentalWarning`.

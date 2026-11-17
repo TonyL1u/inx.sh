@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publish a Gateway release: tag the version from packages/inx-gateway/package.json and push it.
-# CI (.github/workflows/release.yml) runs the tests, builds both architectures, and creates the release.
+# CI (.github/workflows/gateway.yml) runs the tests, builds both architectures, and creates the release.
 # Bump the version in package.json and commit it first; then run: pnpm --filter @inx.sh/gateway release
 # Re-running the same command republishes that version (moves the tag and replaces the release).
 set -euo pipefail
