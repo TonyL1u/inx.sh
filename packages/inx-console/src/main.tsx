@@ -9,9 +9,11 @@ import { api, ApiError, type Status } from './api';
 import { Login } from './pages/Login';
 import { MachineDetail } from './pages/machines/MachineDetail';
 import { Machines } from './pages/machines/Machines';
+import { Nodes } from './pages/nodes/Nodes';
 import { Setup } from './pages/Setup';
 import { Shell } from './pages/Shell';
-import { Placeholder } from './ui';
+import { SubscriptionDetail } from './pages/subscriptions/SubscriptionDetail';
+import { Subscriptions } from './pages/subscriptions/Subscriptions';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,8 +53,9 @@ const router = createBrowserRouter([
           { index: true, element: <Navigate to="/machines" replace /> },
           { path: '/machines', element: <Machines /> },
           { path: '/machines/:id', element: <MachineDetail /> },
-          { path: '/nodes', element: <Placeholder title="节点" description="节点导入与管理将在机器接入完成后提供。" /> },
-          { path: '/subscriptions', element: <Placeholder title="订阅" description="跨机器组合订阅将在节点管理完成后提供。" /> },
+          { path: '/nodes', element: <Nodes /> },
+          { path: '/subscriptions', element: <Subscriptions /> },
+          { path: '/subscriptions/:id', element: <SubscriptionDetail /> },
           { path: '*', element: <Navigate to="/machines" replace /> }
         ]
       }

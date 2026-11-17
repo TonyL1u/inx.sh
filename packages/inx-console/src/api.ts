@@ -46,7 +46,14 @@ const messages: Record<string, string> = {
   PANEL_TIMEOUT: '3x-ui 面板响应超时。',
   PANEL_TLS: 'gateway 无法与 3x-ui 面板建立 TLS 连接。',
   PANEL_PATH: '3x-ui 面板地址或路径不正确。',
-  PANEL_RESPONSE: '3x-ui 面板返回了无法识别的响应。'
+  PANEL_RESPONSE: '3x-ui 面板返回了无法识别的响应。',
+  NODE_EXISTS: '这个客户端已经导入为节点。',
+  NODE_NOT_FOUND: '节点不存在或已被删除。',
+  INBOUND_NOT_FOUND: '入站已不在这台机器上，请先同步机器。',
+  CLIENT_NOT_FOUND: '客户端已不在这个入站上，请先同步机器。',
+  GATEWAY_UPGRADE_REQUIRED: '这台机器的 gateway 版本过旧，不提供客户端列表。请在 VPS 上重新运行安装脚本升级。',
+  SUBSCRIPTION_NOT_FOUND: '订阅不存在或已被删除。',
+  INVALID_MEMBERS: '订阅成员有重复，或超过 500 个。'
 };
 
 /** Short label for a machine's last error, for status badges. */
@@ -74,17 +81,66 @@ export interface Machine {
   createdAt: number;
 }
 
+export interface InboundClient {
+  email: string;
+  enabled: boolean;
+  linkCount: number;
+  unsupported: string | null;
+  nodeId: number | null;
+}
+
 export interface Inbound {
   id: number;
   remark: string;
   protocol: string;
   port: number;
   enabled: boolean;
+  /** null: the gateway predates client listing. */
+  clients: InboundClient[] | null;
 }
 
 export interface MachineDetail {
   machine: Machine;
   inbounds: Inbound[];
+  usage: { nodes: number; subscriptions: number };
 }
+
+export type NodeStatus = 'ok' | 'missing' | 'disabled' | 'unsupported' | 'unknown';
+
+export interface Node {
+  id: number;
+  name: string;
+  machineId: number;
+  machineName: string;
+  machineStatus: 'online' | 'error';
+  inboundId: number;
+  inboundRemark: string | null;
+  protocol: string | null;
+  port: number | null;
+  clientEmail: string;
+  status: NodeStatus;
+  unsupported: string | null;
+  linkCount: number;
+  subscriptionCount: number;
+  createdAt: number;
+}
+
+export interface Subscription {
+  id: number;
+  name: string;
+  token: string;
+  nodeCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SubscriptionDetail {
+  subscription: Subscription;
+  nodes: Node[];
+}
+
+export const subscriptionUrl = (token: string) => location.origin + '/sub/' + token;
+
+export const nodeStatusLabel: Record<NodeStatus, string> = { ok: '可用', missing: '已不存在', disabled: '已停用', unsupported: '不支持', unknown: '需升级 gateway' };
 
 export const errorMessage = (e: unknown) => (e instanceof ApiError ? codeMessage(e.code) : '无法连接到服务器。');

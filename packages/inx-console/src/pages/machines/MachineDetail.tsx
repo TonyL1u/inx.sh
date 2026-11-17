@@ -104,6 +104,7 @@ export function MachineDetail() {
                   <th className="px-4 py-2 font-medium">备注</th>
                   <th className="px-4 py-2 font-medium">协议</th>
                   <th className="px-4 py-2 text-right font-medium">端口</th>
+                  <th className="px-4 py-2 text-right font-medium">客户端</th>
                   <th className="px-4 py-2 text-right font-medium">状态</th>
                 </tr>
               </thead>
@@ -113,6 +114,9 @@ export function MachineDetail() {
                     <td className="max-w-64 truncate px-4 py-2.5">{inbound.remark || <span className="text-zinc-400">#{inbound.id}</span>}</td>
                     <td className="px-4 py-2.5 font-mono text-xs uppercase">{inbound.protocol}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-xs">{inbound.port}</td>
+                    <td className="px-4 py-2.5 text-right text-xs text-zinc-500">
+                      {inbound.clients === null ? '—' : `${inbound.clients.length}${inbound.clients.some(c => c.nodeId !== null) ? ` · ${inbound.clients.filter(c => c.nodeId !== null).length} 已导入` : ''}`}
+                    </td>
                     <td className="px-4 py-2.5 text-right">{inbound.enabled ? <Badge tone="green">启用</Badge> : <Badge tone="zinc">停用</Badge>}</td>
                   </tr>
                 ))}
@@ -130,7 +134,11 @@ export function MachineDetail() {
         <PairForm withName={false} submitLabel="验证并更新" pending={patch.isPending} error={patch.isError ? errorMessage(patch.error) : null} onSubmit={pairCode => patch.mutate({ pairCode })} onCancel={close} />
       </Modal>
       <Modal open={dialog === 'delete'} title={`删除「${machine.name}」？`} onClose={close}>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">主控会删除这台机器保存的凭据和入站记录。VPS 上的 gateway 和 3x-ui 不受影响；之后可以用配对码重新添加。</p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          主控会删除这台机器保存的凭据和入站记录
+          {detail.data.usage.nodes > 0 && `，以及从它导入的 ${detail.data.usage.nodes} 个节点${detail.data.usage.subscriptions > 0 ? `（会从 ${detail.data.usage.subscriptions} 个订阅中移除）` : ''}`}
+          。VPS 上的 gateway 和 3x-ui 不受影响；之后可以用配对码重新添加。
+        </p>
         <ErrorText>{remove.isError ? errorMessage(remove.error) : null}</ErrorText>
         <div className="flex justify-end gap-2">
           <SecondaryButton onClick={close} disabled={remove.isPending}>

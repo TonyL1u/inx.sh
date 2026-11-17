@@ -66,11 +66,24 @@ test('pairing, TLS, authorization and upstream failures across the actual CLI bo
   interface Payload {
     success: boolean;
     msg?: string;
-    obj?: { id: number; remark: string; enable: boolean; protocol: string; port: number; settings: { privateKey: string } }[];
+    obj?: { id: number; remark: string; enable: boolean; protocol: string; port: number; settings: { privateKey: string; clients?: object[] }; streamSettings?: object }[];
   }
   let hits = 0,
     status = 200,
-    payload: Payload = { success: true, obj: [{ id: 1, remark: 'JP', enable: true, protocol: 'vless', port: 443, settings: { privateKey: 'not-for-export' } }] };
+    payload: Payload = {
+      success: true,
+      obj: [
+        {
+          id: 1,
+          remark: 'JP',
+          enable: true,
+          protocol: 'vless',
+          port: 443,
+          settings: { privateKey: 'not-for-export', clients: [{ email: 'phone', id: '11111111-2222-4333-8444-555555555555', enable: true }] },
+          streamSettings: { network: 'tcp', security: 'none' }
+        }
+      ]
+    };
   const panel = createServer((req, res) => {
     hits++;
     if (req.url !== '/base/panel/api/inbounds/list' || req.headers.authorization !== 'Bearer ' + upstreamToken) {
@@ -118,7 +131,12 @@ test('pairing, TLS, authorization and upstream failures across the actual CLI bo
   assert.equal((await request(endpoint, '/v1/inbounds', ca, 'wrong')).status, 401);
   assert.equal(hits, before);
   const call = () => request(endpoint, '/v1/inbounds', ca, identity.token);
-  assert.deepEqual((await call()).body, { inbounds: [{ id: 1, remark: 'JP', enabled: true, protocol: 'vless', port: 443 }] });
+  // Links advertise the Gateway's public host; raw panel settings (keys, other fields) never leave the node.
+  const listed = (await call()).body;
+  assert.deepEqual(listed, {
+    inbounds: [{ id: 1, remark: 'JP', enabled: true, protocol: 'vless', port: 443, clients: [{ email: 'phone', enabled: true, links: ['vless://11111111-2222-4333-8444-555555555555@127.0.0.1:443?encryption=none&security=none&type=tcp#JP-phone'] }] }]
+  });
+  assert.ok(!JSON.stringify(listed).includes('not-for-export'));
   const info = (await request(endpoint, '/v1/info', ca, identity.token)).body;
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(info.id, config.id);

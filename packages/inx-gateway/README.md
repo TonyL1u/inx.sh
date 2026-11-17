@@ -21,7 +21,7 @@ First-time setup requires exactly one public IPv4 address. Allow the controller 
 
 Start saves credentials in `/etc/inx-gateway`, starts the systemd service, and prints a pairing code after checking HTTPS authentication. Treat the code as a password. Use `sudo inx-gateway pair` to display it again, and `sudo inx-gateway stop` to stop the service. Rerunning start preserves the node identity and the self-signed certificate (valid for 10 years); a new certificate requires pairing again.
 
-`sudo inx-gateway uninstall` removes everything the installer set up: the gateway service, `/etc/inx-gateway`, `/opt/inx-gateway`, and the `/usr/local/bin/inx-gateway` link. It also removes the 3x-ui panel, but only when start installed it; a panel that already existed on the VPS is never touched.
+`sudo inx-gateway uninstall` removes everything the installer set up: the gateway service, `/etc/inx-gateway`, `/opt/inx-gateway`, and the `/usr/local/bin/inx-gateway` link. It also removes the 3x-ui panel, but only when start installed it; a panel that already existed on the VPS is never touched. The node ID stays in `/var/lib/inx-gateway/node-id`, so after a reinstall the controller's 「重新配对」 accepts the new pairing code for the same machine (the certificate and token are new). Delete that file to make the VPS a different node.
 
 The pairing code carries the endpoint, the gateway token, and the SHA-256 of the gateway certificate (`parsePair` in `src/config.ts` decodes it). A client completes one TLS handshake without verification and without sending anything, checks that the certificate's SHA-256 matches, and from then on uses that certificate as the trusted CA.
 
@@ -31,7 +31,9 @@ The pairing code carries the endpoint, the gateway token, and the SHA-256 of the
 | -------------- | -------------------- | ----------------------------------------------------------------------- |
 | `/health`      | None                 | Service name and API version; does not query the panel                  |
 | `/v1/info`     | Gateway bearer token | Node ID, version, and capabilities                                      |
-| `/v1/inbounds` | Gateway bearer token | `inbounds` array with `id`, `remark`, `protocol`, `port`, and `enabled` |
+| `/v1/inbounds` | Gateway bearer token | `inbounds` array with `id`, `remark`, `protocol`, `port`, `enabled`, and `clients` (`email`, `enabled`, `links`, and `unsupported` when no link can be built) |
+
+Share links are built by the Gateway from the panel's inbound list (`src/links.ts`), following 3x-ui v3.11.0's subscription engine: VLESS, VMess, Trojan, Shadowsocks and Hysteria over TCP (including the HTTP header), WebSocket, gRPC, HTTPUpgrade and XHTTP, with TLS or Reality, and one link per external proxy. They use the inbound's share address when it has one, otherwise the Gateway's public host. The panel's own link endpoints are outside the `node-sync` token's scope. Clients of other protocols (WireGuard, TUIC, MTProto, …) or kcp transports are listed with `unsupported` and no links.
 
 A `401` means the gateway token is missing or invalid. A `502` indicates a panel error; the response includes the reason. A panel timeout returns `504`.
 

@@ -55,6 +55,16 @@ export interface GatewayInfo {
   capabilities: string[];
 }
 
+/** A 3x-ui client of an inbound, with its share links (capability `inbounds:clients`). */
+export interface GatewayClient {
+  email: string;
+  enabled: boolean;
+  /** One per advertised endpoint (several with external proxies). Empty when `unsupported` is set. */
+  links: string[];
+  /** Why the Gateway cannot build links for this client, e.g. `protocol:wireguard` or `transport:kcp`. */
+  unsupported?: string;
+}
+
 /** One entry of GET /v1/inbounds */
 export interface GatewayInbound {
   id: number;
@@ -62,6 +72,8 @@ export interface GatewayInbound {
   protocol: string;
   port: number;
   enabled: boolean;
+  /** Absent from Gateways without the `inbounds:clients` capability. */
+  clients?: GatewayClient[];
 }
 
 /** `error` values in Gateway error responses (401 GATEWAY_AUTH; 502/504 PANEL_*). */

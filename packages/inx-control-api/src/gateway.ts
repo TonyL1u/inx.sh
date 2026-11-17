@@ -3,7 +3,7 @@ import { request } from 'node:https';
 import { isIP } from 'node:net';
 import { connect, type PeerCertificate } from 'node:tls';
 
-import type { GatewayInbound, GatewayInfo } from '@inx.sh/gateway/protocol';
+import type { GatewayClient, GatewayInbound, GatewayInfo } from '@inx.sh/gateway/protocol';
 
 export type GatewayFailure =
   | 'GATEWAY_UNREACHABLE' // TCP/TLS connection failed
@@ -115,6 +115,16 @@ export async function listInbounds(target: GatewayTarget): Promise<GatewayInboun
   if (!Array.isArray(body?.inbounds)) throw new GatewayError('GATEWAY_RESPONSE');
   return body.inbounds.map((row: Partial<GatewayInbound> | null) => {
     if (!Number.isSafeInteger(row?.id) || typeof row?.protocol !== 'string' || !Number.isInteger(row.port) || typeof row.enabled !== 'boolean') throw new GatewayError('GATEWAY_RESPONSE');
-    return { id: row.id!, remark: typeof row.remark === 'string' ? row.remark : '', protocol: row.protocol, port: row.port!, enabled: row.enabled };
+    const inbound: GatewayInbound = { id: row.id!, remark: typeof row.remark === 'string' ? row.remark : '', protocol: row.protocol, port: row.port!, enabled: row.enabled };
+    // Gateways without the inbounds:clients capability omit clients; keep the field absent rather than empty.
+    if (Array.isArray(row.clients)) inbound.clients = row.clients.map(parseClient);
+    return inbound;
   });
+}
+
+const linkPattern = /^[a-z][a-z0-9+.-]*:\/\/\S+$/i;
+function parseClient(raw: unknown): GatewayClient {
+  const c = raw as Partial<GatewayClient> | null;
+  if (typeof c?.email !== 'string' || c.email === '' || typeof c.enabled !== 'boolean' || !Array.isArray(c.links) || !c.links.every(l => typeof l === 'string' && linkPattern.test(l))) throw new GatewayError('GATEWAY_RESPONSE');
+  return { email: c.email, enabled: c.enabled, links: c.links, ...(typeof c.unsupported === 'string' ? { unsupported: c.unsupported } : {}) };
 }

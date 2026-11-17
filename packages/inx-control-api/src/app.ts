@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyError } from 'fastify';
 
 import { registerAuth } from './auth.js';
+import { Catalog, registerCatalog } from './catalog.js';
 import type { Config } from './config.js';
 import type { Db } from './db.js';
 import { ApiError } from './errors.js';
@@ -36,6 +37,7 @@ export async function buildApp(config: Pick<Config, 'consoleDir' | 'trustProxy' 
   app.get('/health', () => ({ service: 'inx-connect', apiVersion: 1, version }));
   registerAuth(app, db);
   registerMachines(app, new Machines(db, config.secretKey), config.syncIntervalMs);
+  registerCatalog(app, new Catalog(db));
 
   if (config.consoleDir) {
     const consoleDir = config.consoleDir;

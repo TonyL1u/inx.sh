@@ -17,7 +17,8 @@ export function Machines() {
   const add = useMutation({
     mutationFn: ({ pairCode, name }: { pairCode: string; name: string }) => api<MachineDetail & { repaired: boolean }>('/machines', { body: { pairCode, ...(name ? { name } : {}) } }),
     onSuccess: async result => {
-      queryClient.setQueryData(['machine', result.machine.id], { machine: result.machine, inbounds: result.inbounds });
+      const { repaired: _repaired, ...detail } = result;
+      queryClient.setQueryData<MachineDetail>(['machine', result.machine.id], detail);
       await queryClient.invalidateQueries({ queryKey: ['machines'] });
       setAdding(false);
       void navigate('/machines/' + result.machine.id);

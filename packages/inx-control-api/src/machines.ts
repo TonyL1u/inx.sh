@@ -39,6 +39,22 @@ export interface Machine {
   createdAt: number;
 }
 
+export interface MachineInbound {
+  id: number;
+  remark: string;
+  protocol: string;
+  port: number;
+  enabled: boolean;
+  /** null when the Gateway predates client listing (no inbounds:clients capability). */
+  clients: { email: string; enabled: boolean; linkCount: number; unsupported: string | null; nodeId: number | null }[] | null;
+}
+
+export interface MachineDetail {
+  machine: Machine;
+  inbounds: MachineInbound[];
+  usage: { nodes: number; subscriptions: number };
+}
+
 const tokenContext = (nodeId: string) => `machine:${nodeId}:token`;
 const nameLimit = 64;
 
@@ -94,9 +110,25 @@ export class Machines {
     return (this.db.prepare('SELECT * FROM machines ORDER BY created_at, id').all() as unknown as MachineRow[]).map(view);
   }
 
-  get(id: number) {
+  /** Machine, its inbound snapshot with clients (links stay server-side), and what depends on it. */
+  get(id: number): MachineDetail {
     const row = this.row(id);
-    return { machine: view(row), inbounds: JSON.parse(row.inbounds) as GatewayInbound[] };
+    const imported = new Map(
+      (this.db.prepare('SELECT id, inbound_id, client_email FROM nodes WHERE machine_id = ?').all(id) as { id: number; inbound_id: number; client_email: string }[]).map(n => [n.inbound_id + '\n' + n.client_email.toLowerCase(), n.id])
+    );
+    const inbounds = (JSON.parse(row.inbounds) as GatewayInbound[]).map(ib => ({
+      id: ib.id,
+      remark: ib.remark,
+      protocol: ib.protocol,
+      port: ib.port,
+      enabled: ib.enabled,
+      clients: ib.clients?.map(c => ({ email: c.email, enabled: c.enabled, linkCount: c.links.length, unsupported: c.unsupported ?? null, nodeId: imported.get(ib.id + '\n' + c.email.toLowerCase()) ?? null })) ?? null
+    }));
+    const usage = this.db.prepare('SELECT COUNT(DISTINCT n.id) AS nodes, COUNT(DISTINCT sn.subscription_id) AS subscriptions FROM nodes n LEFT JOIN subscription_nodes sn ON sn.node_id = n.id WHERE n.machine_id = ?').get(id) as {
+      nodes: number;
+      subscriptions: number;
+    };
+    return { machine: view(row), inbounds, usage: { nodes: usage.nodes, subscriptions: usage.subscriptions } };
   }
 
   // Verifies a pairing code end to end: pinned certificate, token, node identity, and a first inbound sync.
@@ -151,7 +183,7 @@ export class Machines {
         now,
         label ?? null
       ) as unknown as MachineRow;
-    return { machine: view(row), inbounds, repaired: existing !== undefined };
+    return { ...this.get(row.id), repaired: existing !== undefined };
   }
 
   /** Replaces the credentials of a machine with a new pairing code from the same node. */
