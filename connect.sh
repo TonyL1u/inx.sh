@@ -118,6 +118,7 @@ ENV
     echo '# Managed by the INX Connect installer; rerun it instead of editing. Settings live in .env.'
     echo 'services:'
     echo '  inx-connect:'
+    echo '    container_name: inx-connect'
     echo '    image: ${INX_IMAGE}:${INX_VERSION}'
     echo '    restart: unless-stopped'
     echo '    environment:'
