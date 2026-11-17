@@ -86,6 +86,8 @@ before=$(stat -c '%i:%Y' /usr/local/x-ui/x-ui)
 bootstrap >/tmp/pair-again
 [[ $(stat -c '%i:%Y' /usr/local/x-ui/x-ui) == "$before" && $(wc -l </tmp/panel-installs) == 1 ]]
 cmp /tmp/pair /tmp/pair-again
+# The panel's own management menu is installed like the upstream installer does.
+[[ -x /usr/bin/x-ui ]] && cmp /usr/bin/x-ui /usr/local/x-ui/x-ui.sh
 inx-gateway pair | cmp - /tmp/pair
 /opt/inx-gateway/current/runtime/node --input-type=module <<'JS'
 import {createHash} from 'node:crypto';
