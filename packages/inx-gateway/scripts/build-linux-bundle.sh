@@ -4,7 +4,6 @@ set -euo pipefail
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$repo"
 gateway="$repo/packages/inx-gateway"
-bootstrap="$gateway/scripts/bootstrap"
 version=$(node -p "require('./packages/inx-gateway/package.json').version")
 num='(0|[1-9][0-9]*)'
 [[ $version =~ ^$num\.$num\.$num(-beta\.$num)?$ ]] || { echo 'Expected X.Y.Z or X.Y.Z-beta.N' >&2; exit 1; }
@@ -36,5 +35,3 @@ chmod 0755 "$bundle/launch"
 asset="inx-gateway-$version-linux-$arch.tar.gz"
 tar -czf "$out/$asset" -C "$bundle" .
 (cd "$out" && sha256sum "$asset" > "$asset.sha256")
-sed "s/@GATEWAY_VERSION@/$version/g" "$bootstrap" > "$stage/bootstrap"
-install -m 0644 "$stage/bootstrap" "$out/bootstrap"

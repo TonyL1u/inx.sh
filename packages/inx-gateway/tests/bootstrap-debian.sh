@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run in a disposable Debian 12 container with the local release mounted at /release.
+# Run in a disposable Debian 12 container with the local release mounted at /release
+# and bootstrap.sh (from the main branch) mounted at /bootstrap.sh.
 set -euo pipefail
 umask 077
 for cmd in node npm; do
@@ -37,9 +38,12 @@ export PATH=/tmp/test-bin:$PATH
 ln -s /tmp/bad-release /tmp/test-release
 ln -s "/release/$asset" "/tmp/bad-release/$asset"
 printf '%064d  %s\n' 0 "$asset" > "/tmp/bad-release/$asset.sha256"
-if bash /release/bootstrap unexpected >/dev/null 2>/tmp/rejected; then exit 1; fi
-grep -q 'takes no arguments' /tmp/rejected
-if bash /release/bootstrap >/dev/null 2>/tmp/rejected; then exit 1; fi
+if bash /bootstrap.sh unexpected >/dev/null 2>/tmp/rejected; then exit 1; fi
+grep -q 'Unknown argument' /tmp/rejected
+if bash /bootstrap.sh --version 1.0 >/dev/null 2>/tmp/rejected; then exit 1; fi
+grep -q 'Invalid Gateway version' /tmp/rejected
+bootstrap() { bash /bootstrap.sh --version "$EXPECTED_TAG"; }
+if bootstrap >/dev/null 2>/tmp/rejected; then exit 1; fi
 grep -q 'checksum mismatch' /tmp/rejected
 [[ ! -e /usr/local/bin/inx-gateway ]]
 # This container has no systemd PID 1. Exercise service-mode setup while a
@@ -73,13 +77,13 @@ SYSTEMCTL
 chmod +x /tmp/test-bin/systemctl
 # A failed or partial installation must not be treated as an empty VPS.
 mkdir /etc/x-ui
-if bash /release/bootstrap >/tmp/out 2>/tmp/diagnostic; then exit 1; fi
+if bootstrap >/tmp/out 2>/tmp/diagnostic; then exit 1; fi
 grep -q 'Existing /etc/x-ui' /tmp/diagnostic
 [[ ! -e /usr/local/x-ui ]]
 rmdir /etc/x-ui
-bash /release/bootstrap >/tmp/pair
+bootstrap >/tmp/pair
 before=$(stat -c '%i:%Y' /usr/local/x-ui/x-ui)
-bash /release/bootstrap >/tmp/pair-again
+bootstrap >/tmp/pair-again
 [[ $(stat -c '%i:%Y' /usr/local/x-ui/x-ui) == "$before" && $(wc -l </tmp/panel-installs) == 1 ]]
 cmp /tmp/pair /tmp/pair-again
 inx-gateway pair | cmp - /tmp/pair
