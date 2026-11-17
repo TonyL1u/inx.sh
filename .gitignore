@@ -53,6 +53,7 @@ build/
 *.key
 *.sqlite*
 /data/
+packages/inx-control-api/data/
 
 # Local project notes
 /docs/

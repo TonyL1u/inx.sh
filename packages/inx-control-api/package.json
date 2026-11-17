@@ -12,12 +12,16 @@
     "lint": "eslint .",
     "build": "tsx esbuild.config.ts",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.mjs"
+    "start": "node dist/index.mjs",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/static": "^10.1.11",
     "fastify": "^5.0.0"
   },
   "devDependencies": {
+    "@inx.sh/console": "workspace:*",
     "esbuild": "^0.28.2"
   }
 }

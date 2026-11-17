@@ -1,0 +1,54 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+import { seal, unseal } from './crypto.js';
+
+export type Db = DatabaseSync;
+
+// Append-only. Each entry runs once, in order, tracked by PRAGMA user_version.
+const migrations = [
+  `CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+   CREATE TABLE admin (id INTEGER PRIMARY KEY CHECK (id = 1), password_hash TEXT NOT NULL, updated_at INTEGER NOT NULL) STRICT;
+   CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT;
+   CREATE TABLE setup_codes (code_hash TEXT PRIMARY KEY, reset INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT;`
+];
+
+export function openDb(path: string, secretKey: Buffer) {
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const db = new DatabaseSync(path);
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+  migrate(db);
+  checkKey(db, secretKey);
+  return db;
+}
+
+function migrate(db: Db) {
+  const current = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  if (current > migrations.length) throw Error(`Database schema ${current} is newer than this INX Connect build (${migrations.length}). Upgrade the image.`);
+  for (let version = current; version < migrations.length; version++) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(migrations[version]!);
+      db.exec(`PRAGMA user_version = ${version + 1}`);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+}
+
+// Refuse to start with a different key than the one that sealed existing secrets.
+function checkKey(db: Db, key: Buffer) {
+  const row = db.prepare("SELECT value FROM meta WHERE key = 'key_check'").get() as { value: string } | undefined;
+  if (!row) {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('key_check', ?)").run(seal(key, 'inx-connect', 'meta:key_check'));
+    return;
+  }
+  try {
+    unseal(key, row.value, 'meta:key_check');
+  } catch {
+    throw Error('INX_SECRET_KEY does not match the key this database was created with.');
+  }
+}

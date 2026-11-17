@@ -1,7 +1,15 @@
+# Local image test. Production installs use connect.sh from the main branch, which pulls inxsh/inx-connect.
 services:
-  inx-control-api:
-    container_name: inx-control-api
+  inx-connect:
+    container_name: inx-connect-dev
     build: .
+    environment:
+      INX_SECRET_KEY: ${INX_SECRET_KEY:?Set INX_SECRET_KEY, e.g. export INX_SECRET_KEY=$(openssl rand -hex 32)}
+    volumes:
+      - inx-data:/data
     ports:
-      - "127.0.0.1:${CONTROL_API_PORT:-3100}:3100"
+      - '127.0.0.1:${INX_PORT:-3100}:3100'
     restart: unless-stopped
+
+volumes:
+  inx-data:
