@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { get } from 'node:https';
 import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
@@ -12,6 +12,23 @@ import { type Config, gatewayUrl, matchesHost, pair, readConfig, saveConfig, sec
 import { listInbounds, PanelError, panelUrl } from './panel.js';
 
 export const defaultDir = '/etc/inx-gateway';
+// Survives uninstall, so a reinstalled node keeps its identity and the controller can re-pair it in place.
+export const nodeIdFile = '/var/lib/inx-gateway/node-id';
+
+function rememberedNodeId() {
+  try {
+    const id = readFileSync(nodeIdFile, 'utf8').trim();
+    return /^[0-9a-f-]{36}$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function rememberNodeId(id: string) {
+  if (rememberedNodeId() === id) return;
+  mkdirSync('/var/lib/inx-gateway', { recursive: true, mode: 0o700 });
+  writeFileSync(nodeIdFile + '.tmp', id + '\n', { mode: 0o600 });
+  renameSync(nodeIdFile + '.tmp', nodeIdFile);
+}
 
 const say = (s: string) => console.error('==> ' + s);
 
@@ -156,7 +173,8 @@ export async function start() {
     }
     const url = panelUrl(address);
     const pem = tls(dir, endpoint, old);
-    const id = old?.id ?? randomUUID();
+    const id = old?.id ?? rememberedNodeId() ?? randomUUID();
+    rememberNodeId(id);
     const pending = join(dir, 'pending-panel-token');
     if (!panelToken && existsSync(pending)) panelToken = readFileSync(pending, 'utf8').trim();
     if (!panelToken) {
@@ -254,7 +272,7 @@ export function uninstall() {
     for (const path of ['/usr/local/x-ui', '/etc/x-ui', '/etc/default/x-ui', '/var/log/x-ui']) rmSync(path, { recursive: true, force: true });
   }
   if (removedUnits) run('systemctl', ['daemon-reload'], 'systemctl daemon-reload');
-  say('Removing gateway files...');
+  say('Removing gateway files (keeping the node ID in ' + nodeIdFile + ')...');
   rmSync(defaultDir, { recursive: true, force: true });
   rmSync('/opt/inx-gateway', { recursive: true, force: true });
   if (lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink() && readlinkSync(link) === '/opt/inx-gateway/current/launch') rmSync(link);

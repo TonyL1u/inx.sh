@@ -1,6 +1,9 @@
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
 
+import { clientLinks, type PanelClient, parseJson } from './links.js';
+import type { GatewayClient, GatewayInbound } from './protocol.js';
+
 export interface Panel {
   url: string;
   token: string;
@@ -45,14 +48,44 @@ export async function listInbounds(panel: Panel) {
     });
     request.on('error', (e: NodeJS.ErrnoException) => reject(new PanelError(e.code === 'ABORT_ERR' ? 'PANEL_TIMEOUT' : /CERT|TLS|ISSUER|SELF_SIGNED/.test(e.code ?? '') ? 'PANEL_TLS' : 'PANEL_UNREACHABLE')));
   });
+  let rows: Record<string, unknown>[];
   try {
     const result = JSON.parse(data.toString());
     if (result?.success !== true || !Array.isArray(result.obj)) throw Error();
-    return result.obj.map((row: Record<string, unknown>) => {
-      if (!Number.isSafeInteger(row.id) || typeof row.protocol !== 'string' || typeof row.enable !== 'boolean' || !Number.isInteger(row.port)) throw Error();
-      return { id: row.id, protocol: row.protocol, port: row.port, enabled: row.enable, remark: typeof row.remark === 'string' ? row.remark : '' };
-    }) as { id: number; protocol: string; port: number; enabled: boolean; remark: string }[];
+    rows = result.obj;
   } catch {
     throw new PanelError('PANEL_RESPONSE');
   }
+  return rows.map(row => {
+    if (!row || !Number.isSafeInteger(row.id) || typeof row.protocol !== 'string' || typeof row.enable !== 'boolean' || !Number.isInteger(row.port)) throw new PanelError('PANEL_RESPONSE');
+    return {
+      id: row.id as number,
+      protocol: row.protocol,
+      port: row.port as number,
+      enabled: row.enable,
+      remark: typeof row.remark === 'string' ? row.remark : '',
+      listen: typeof row.listen === 'string' ? row.listen : '',
+      shareAddr: typeof row.shareAddr === 'string' ? row.shareAddr : '',
+      shareAddrStrategy: typeof row.shareAddrStrategy === 'string' ? row.shareAddrStrategy : '',
+      disableFlow: row.disableFlow === true,
+      settings: parseJson(row.settings),
+      streamSettings: parseJson(row.streamSettings)
+    };
+  });
+}
+
+export type PanelInboundRow = Awaited<ReturnType<typeof listInbounds>>[number];
+
+/** The /v1/inbounds view: inbound summary plus each client's share links. Credentials appear only inside links. */
+export function inboundView(row: PanelInboundRow, publicHost: string): GatewayInbound {
+  const clients: GatewayClient[] = [];
+  const seen = new Set<string>();
+  for (const raw of Array.isArray(row.settings.clients) ? row.settings.clients : []) {
+    const client = raw as PanelClient;
+    if (!client || typeof client.email !== 'string' || client.email === '' || seen.has(client.email.toLowerCase())) continue;
+    seen.add(client.email.toLowerCase());
+    const built = clientLinks(row, client, publicHost);
+    clients.push({ email: client.email, enabled: client.enable !== false, ...('links' in built ? { links: built.links } : { links: [], unsupported: built.unsupported }) });
+  }
+  return { id: row.id, remark: row.remark, protocol: row.protocol, port: row.port, enabled: row.enabled, clients };
 }

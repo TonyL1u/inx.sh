@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import Fastify from 'fastify';
 
 import type { Config } from './config.js';
-import { listInbounds, PanelError } from './panel.js';
+import { inboundView, listInbounds, PanelError } from './panel.js';
 import type { GatewayInbound, GatewayInfo } from './protocol.js';
 import { version } from './version.js';
 
@@ -19,10 +19,11 @@ export function createGateway(config: Config) {
         reply.header('Cache-Control', 'no-store');
         if (!timingSafeEqual(expected, digest(req.headers.authorization ?? ''))) return reply.code(401).send({ error: 'GATEWAY_AUTH' });
       });
-      routes.get('/info', (): GatewayInfo => ({ id: config.id, service: 'inx-gateway', apiVersion: 1, version, capabilities: ['inbounds:list'] }));
+      routes.get('/info', (): GatewayInfo => ({ id: config.id, service: 'inx-gateway', apiVersion: 1, version, capabilities: ['inbounds:list', 'inbounds:clients'] }));
       routes.get('/inbounds', async (_req, reply) => {
         try {
-          const inbounds: GatewayInbound[] = await listInbounds(config.panel);
+          const publicHost = new URL(config.endpoint).hostname.replace(/^\[|\]$/g, '');
+          const inbounds: GatewayInbound[] = (await listInbounds(config.panel)).map(row => inboundView(row, publicHost));
           return { inbounds };
         } catch (e) {
           const code = e instanceof PanelError ? e.code : 'PANEL_UNREACHABLE';
