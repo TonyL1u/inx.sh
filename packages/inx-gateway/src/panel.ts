@@ -1,6 +1,7 @@
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
+import { certDomain } from './domain.js';
 import { clientLinks, type PanelClient, parseJson } from './links.js';
 import type { GatewayClient, GatewayInbound } from './protocol.js';
 
@@ -21,24 +22,51 @@ export class PanelError extends Error {
   constructor(
     readonly code: string,
     /** The panel's own message, for PANEL_REJECTED (a write the panel refused). Never forwarded to clients. */
-    readonly detail?: string
+    readonly detail?: string,
+    /** The panel answered in the other scheme (HTTP vs HTTPS), e.g. after a certificate was set in x-ui. */
+    readonly wrongScheme = false
   ) {
     super(detail ? code + ': ' + detail : code);
   }
 }
 
+// The scheme that last worked for each panel URL. x-ui switches the panel to HTTPS on the same port when a certificate
+// is set ("Set Cert paths for the panel"), and back when it is reset; calls follow it without a restart.
+const workingScheme = new Map<string, string>();
+
 // One JSON call to the panel API with the node-sync bearer token. Returns `obj` of a `{ success: true, obj }` envelope.
 async function panelCall(panel: Panel, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+  const configured = new URL(panelUrl(panel.url));
+  const first = workingScheme.get(panel.url) ?? configured.protocol;
+  try {
+    const obj = await panelOnce(panel, first, method, path, body);
+    workingScheme.set(panel.url, first);
+    return obj;
+  } catch (e) {
+    if (!(e instanceof PanelError && e.wrongScheme)) throw e;
+    const other = first === 'https:' ? 'http:' : 'https:';
+    const obj = await panelOnce(panel, other, method, path, body);
+    workingScheme.set(panel.url, other);
+    return obj;
+  }
+}
+
+async function panelOnce(panel: Panel, scheme: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
   const url = new URL(panelUrl(panel.url) + path);
+  url.protocol = scheme;
   const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   const data = await new Promise<Buffer>((resolve, reject) => {
     const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
     const headers: Record<string, string> = { authorization: 'Bearer ' + panel.token, accept: 'application/json' };
     if (payload) headers['content-type'] = 'application/json';
-    const request = send(url, { method, headers, agent: false, ca: panel.ca, servername: panel.serverName, rejectUnauthorized: true, signal: AbortSignal.timeout(method === 'GET' ? 8000 : 20000) }, response => {
+    // The panel is on loopback. A certificate set in x-ui is issued for the node's domain, not 127.0.0.1, so unless a
+    // CA or server name was configured, the chain is verified against the system CAs but the hostname is not.
+    const tls = url.protocol === 'https:' ? { ca: panel.ca, servername: panel.serverName, rejectUnauthorized: true, ...(panel.ca || panel.serverName ? {} : { checkServerIdentity: () => undefined }) } : {};
+    const request = send(url, { method, headers, agent: false, ...tls, signal: AbortSignal.timeout(method === 'GET' ? 8000 : 20000) }, response => {
       const status = response.statusCode;
       if (status !== 200) {
-        reject(new PanelError(status === 401 ? 'PANEL_AUTH' : status === 403 ? 'PANEL_PERMISSION' : status === 404 ? 'PANEL_PATH' : 'PANEL_RESPONSE'));
+        // Go's TLS server answers plain HTTP with 400 "Client sent an HTTP request to an HTTPS server".
+        reject(new PanelError(status === 401 ? 'PANEL_AUTH' : status === 403 ? 'PANEL_PERMISSION' : status === 404 ? 'PANEL_PATH' : 'PANEL_RESPONSE', undefined, status === 400 && url.protocol === 'http:'));
         response.destroy();
         return;
       }
@@ -54,7 +82,11 @@ async function panelCall(panel: Panel, method: 'GET' | 'POST', path: string, bod
       response.on('error', () => reject(new PanelError('PANEL_UNREACHABLE')));
       response.on('end', () => resolve(Buffer.concat(chunks)));
     });
-    request.on('error', (e: NodeJS.ErrnoException) => reject(new PanelError(e.code === 'ABORT_ERR' ? 'PANEL_TIMEOUT' : /CERT|TLS|ISSUER|SELF_SIGNED/.test(e.code ?? '') ? 'PANEL_TLS' : 'PANEL_UNREACHABLE')));
+    request.on('error', (e: NodeJS.ErrnoException) => {
+      // A TLS handshake against a plain HTTP server fails with "wrong version number" / "packet length too long".
+      const plain = url.protocol === 'https:' && (e.code === 'EPROTO' || /WRONG_VERSION_NUMBER|PACKET_LENGTH_TOO_LONG|HTTP_REQUEST/.test(e.code ?? '') || /wrong version number|packet length too long/.test(e.message));
+      reject(new PanelError(e.code === 'ABORT_ERR' ? 'PANEL_TIMEOUT' : plain ? 'PANEL_TLS' : /CERT|TLS|ISSUER|SELF_SIGNED/.test(e.code ?? '') ? 'PANEL_TLS' : 'PANEL_UNREACHABLE', undefined, plain));
+    });
     request.end(payload);
   });
   let result: { success?: unknown; msg?: unknown; obj?: unknown };
@@ -65,6 +97,12 @@ async function panelCall(panel: Panel, method: 'GET' | 'POST', path: string, bod
   }
   if (result?.success !== true) throw new PanelError(method === 'GET' ? 'PANEL_RESPONSE' : 'PANEL_REJECTED', typeof result?.msg === 'string' ? result.msg : undefined);
   return result.obj;
+}
+
+/** The node's domain: that of the 3x-ui panel certificate. undefined when none is set or the path names no domain. */
+export async function panelDomain(panel: Panel) {
+  const obj = (await panelCall(panel, 'GET', '/panel/api/server/getWebCertFiles')) as { webCertFile?: unknown } | null;
+  return typeof obj?.webCertFile === 'string' && obj.webCertFile ? certDomain(obj.webCertFile) : undefined;
 }
 
 /** Creates an inbound; 3x-ui accepts its clients inside settings. Returns the new inbound ID. */

@@ -60,7 +60,7 @@ cat >/tmp/test-bin/systemctl <<'SYSTEMCTL'
 set -eu
 case "$*" in
   'cat x-ui.service') test -e /etc/systemd/system/x-ui.service ;;
-  'daemon-reload'|'enable inx-gateway') ;;
+  'daemon-reload'|'enable inx-gateway'|'enable --now inx-gateway-domain.path') ;;
   'enable --now x-ui')
     echo install >> /tmp/panel-installs
     (cd /usr/local/x-ui && exec ./x-ui) </dev/null >/tmp/panel.log 2>&1 & ;;
