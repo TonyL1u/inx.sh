@@ -2,7 +2,7 @@ import { join } from 'node:path';
 
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
-import Fastify, { type FastifyError } from 'fastify';
+import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 
 import { registerAuth } from './auth.js';
 import { Catalog, registerCatalog } from './catalog.js';
@@ -14,8 +14,14 @@ import { version } from './version.js';
 
 const csp = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
-export async function buildApp(config: Pick<Config, 'consoleDir' | 'trustProxy' | 'secretKey' | 'syncIntervalMs'>, db: Db) {
-  const app = Fastify({ trustProxy: config.trustProxy, bodyLimit: 256 * 1024, logger: process.env.NODE_ENV === 'production' ? { redact: ['req.headers.authorization', 'req.headers.cookie'] } : false });
+export async function buildApp(config: Pick<Config, 'consoleDir' | 'trustProxy' | 'secretKey' | 'syncIntervalMs' | 'tls' | 'publicUrl'>, db: Db) {
+  // With a certificate from `inx-connect domain`, the same port serves HTTPS, as x-ui does for its panel.
+  const app = Fastify({
+    trustProxy: config.trustProxy,
+    bodyLimit: 256 * 1024,
+    logger: process.env.NODE_ENV === 'production' ? { redact: ['req.headers.authorization', 'req.headers.cookie'] } : false,
+    ...(config.tls ? { https: { ...config.tls, minVersion: 'TLSv1.2' as const } } : {})
+  }) as unknown as FastifyInstance;
   // Only JSON bodies: text/plain is a CORS "simple" content type and would allow cross-site form posts.
   app.removeContentTypeParser('text/plain');
   await app.register(fastifyCookie);
@@ -27,7 +33,7 @@ export async function buildApp(config: Pick<Config, 'consoleDir' | 'trustProxy' 
 
   // Every error leaves as { error: CODE }; unexpected ones are logged and reported as INTERNAL.
   app.setErrorHandler((e: FastifyError, req, reply) => {
-    if (e instanceof ApiError) return reply.code(e.status).send({ error: e.code });
+    if (e instanceof ApiError) return reply.code(e.status).send({ ...e.details, error: e.code });
     if (e.validation) return reply.code(400).send({ error: 'INVALID_REQUEST', message: e.message });
     const status = e.statusCode && e.statusCode >= 400 ? e.statusCode : 500;
     if (status >= 500) req.log.error(e);
@@ -35,7 +41,7 @@ export async function buildApp(config: Pick<Config, 'consoleDir' | 'trustProxy' 
   });
 
   app.get('/health', () => ({ service: 'inx-connect', apiVersion: 1, version }));
-  registerAuth(app, db);
+  registerAuth(app, db, { tls: config.tls !== undefined, publicUrl: config.publicUrl ?? null });
   registerMachines(app, new Machines(db, config.secretKey), config.syncIntervalMs);
   registerCatalog(app, new Catalog(db));
 

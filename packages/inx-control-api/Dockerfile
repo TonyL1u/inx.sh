@@ -16,6 +16,7 @@ USER node
 VOLUME /data
 EXPOSE 3100
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s CMD ["node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+# HTTPS once `inx-connect domain` has mounted a certificate (the certificate names the domain, not 127.0.0.1).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s CMD ["node", "-e", "const fs=require('fs');const tls=fs.existsSync(process.env.INX_TLS_CERT||'/cert/fullchain.pem')&&fs.existsSync(process.env.INX_TLS_KEY||'/cert/privkey.pem');require(tls?'https':'http').get({host:'127.0.0.1',port:process.env.PORT,path:'/health',rejectUnauthorized:false},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
 
 CMD ["node", "--disable-warning=ExperimentalWarning", "index.mjs"]

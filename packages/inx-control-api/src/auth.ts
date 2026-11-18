@@ -49,7 +49,7 @@ function startSession(db: Db, req: FastifyRequest, reply: FastifyReply) {
   reply.setCookie(sessionCookie, token, { path: '/', httpOnly: true, sameSite: 'strict', secure: req.protocol === 'https', maxAge: sessionTtl / 1000 });
 }
 
-export function registerAuth(app: FastifyInstance, db: Db) {
+export function registerAuth(app: FastifyInstance, db: Db, site: { tls: boolean; publicUrl: string | null } = { tls: false, publicUrl: null }) {
   const failures = new Map<string, { count: number; until: number }>();
   const limited = (ip: string) => {
     const entry = failures.get(ip);
@@ -71,7 +71,7 @@ export function registerAuth(app: FastifyInstance, db: Db) {
     if (!sessionFor(db, req)) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
   });
 
-  app.get('/api/status', { config: { public: true } }, req => ({ initialized: isInitialized(db), authenticated: sessionFor(db, req) !== undefined }));
+  app.get('/api/status', { config: { public: true } }, req => ({ initialized: isInitialized(db), authenticated: sessionFor(db, req) !== undefined, ...site }));
 
   app.post<{ Body: { code: string; password: string } }>(
     '/api/setup',

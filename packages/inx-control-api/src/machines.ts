@@ -1,10 +1,13 @@
+import { resolve4 } from 'node:dns/promises';
+import { isIP } from 'node:net';
+
 import { type GatewayInbound, type Pairing, parsePair } from '@inx.sh/gateway/protocol';
 import type { FastifyInstance } from 'fastify';
 
 import { seal, unseal } from './crypto.js';
 import type { Db } from './db.js';
 import { ApiError } from './errors.js';
-import { fetchPinnedCertificate, GatewayError, type GatewayTarget, getInfo, listInbounds } from './gateway.js';
+import { bindDomain, fetchPinnedCertificate, GatewayError, type GatewayTarget, getDomain, getInfo, listInbounds, unbindDomain } from './gateway.js';
 
 interface MachineRow {
   id: number;
@@ -21,6 +24,7 @@ interface MachineRow {
   checked_at: number;
   last_error: string | null;
   created_at: number;
+  domain: string | null;
 }
 
 export interface Machine {
@@ -37,6 +41,8 @@ export interface Machine {
   syncedAt: number;
   checkedAt: number;
   createdAt: number;
+  /** The 3x-ui panel certificate domain the node's share links use; null: they use the IP. */
+  domain: string | null;
 }
 
 export interface MachineInbound {
@@ -55,6 +61,9 @@ export interface MachineDetail {
   usage: { nodes: number; subscriptions: number };
 }
 
+/** Replaceable in tests. */
+export const dnsResolver = { resolve4: (name: string) => resolve4(name) };
+
 const tokenContext = (nodeId: string) => `machine:${nodeId}:token`;
 const nameLimit = 64;
 
@@ -71,7 +80,8 @@ function view(row: MachineRow): Machine {
     inboundCount: (JSON.parse(row.inbounds) as unknown[]).length,
     syncedAt: row.synced_at,
     checkedAt: row.checked_at,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    domain: row.domain
   };
 }
 
@@ -144,7 +154,8 @@ export class Machines {
       const target: GatewayTarget = { ...pairing, cert };
       const info = await getInfo(target);
       const inbounds = await listInbounds(target);
-      return { target, info, inbounds };
+      const domain = info.capabilities.includes('domain') ? ((await getDomain(target).catch(() => undefined))?.domain ?? null) : null;
+      return { target, info, inbounds, domain };
     } catch (e) {
       throw asFailure(e);
     }
@@ -153,18 +164,18 @@ export class Machines {
   /** Adds a machine, or refreshes the credentials of an already paired node (same node ID). */
   async pair(code: string, name?: string, expectedNodeId?: string) {
     const label = cleanName(name);
-    const { target, info, inbounds } = await this.probe(code);
+    const { target, info, inbounds, domain } = await this.probe(code);
     if (expectedNodeId !== undefined && info.id !== expectedNodeId) throw new ApiError(409, 'NODE_MISMATCH');
     const now = this.now();
     const existing = this.db.prepare('SELECT id FROM machines WHERE node_id = ?').get(info.id) as { id: number } | undefined;
     const row = this.db
       .prepare(
-        `INSERT INTO machines (node_id, name, endpoint, cert_pin, cert_pem, token_sealed, gateway_version, capabilities, inbounds, synced_at, checked_at, last_error, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        `INSERT INTO machines (node_id, name, endpoint, cert_pin, cert_pem, token_sealed, gateway_version, capabilities, inbounds, domain, synced_at, checked_at, last_error, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
          ON CONFLICT (node_id) DO UPDATE SET
            name = CASE WHEN ? IS NULL THEN machines.name ELSE excluded.name END,
            endpoint = excluded.endpoint, cert_pin = excluded.cert_pin, cert_pem = excluded.cert_pem, token_sealed = excluded.token_sealed,
-           gateway_version = excluded.gateway_version, capabilities = excluded.capabilities, inbounds = excluded.inbounds,
+           gateway_version = excluded.gateway_version, capabilities = excluded.capabilities, inbounds = excluded.inbounds, domain = excluded.domain,
            synced_at = excluded.synced_at, checked_at = excluded.checked_at, last_error = NULL
          RETURNING *`
       )
@@ -178,6 +189,7 @@ export class Machines {
         info.version,
         JSON.stringify(info.capabilities),
         JSON.stringify(inbounds),
+        domain,
         now,
         now,
         now,
@@ -220,13 +232,52 @@ export class Machines {
       const info = await getInfo(target);
       if (info.id !== row.node_id) throw new GatewayError('GATEWAY_IDENTITY');
       const inbounds = await listInbounds(target);
+      // The domain is read from x-ui each time, so one set or changed in x-ui shows up here too.
+      const domain = info.capabilities.includes('domain') ? ((await getDomain(target).catch(() => undefined))?.domain ?? null) : row.domain;
       const now = this.now();
-      this.db.prepare('UPDATE machines SET gateway_version = ?, capabilities = ?, inbounds = ?, synced_at = ?, checked_at = ?, last_error = NULL WHERE id = ?').run(info.version, JSON.stringify(info.capabilities), JSON.stringify(inbounds), now, now, id);
+      this.db
+        .prepare('UPDATE machines SET gateway_version = ?, capabilities = ?, inbounds = ?, domain = ?, synced_at = ?, checked_at = ?, last_error = NULL WHERE id = ?')
+        .run(info.version, JSON.stringify(info.capabilities), JSON.stringify(inbounds), domain, now, now, id);
     } catch (e) {
       const code = e instanceof GatewayError ? e.code : 'GATEWAY_RESPONSE';
       this.db.prepare('UPDATE machines SET checked_at = ?, last_error = ? WHERE id = ?').run(this.now(), code, id);
     }
     return view(this.row(id));
+  }
+
+  private domainTarget(id: number) {
+    const row = this.row(id);
+    if (!(JSON.parse(row.capabilities) as string[]).includes('domain')) throw new ApiError(409, 'GATEWAY_UPGRADE_REQUIRED');
+    return { row, target: this.target(row) };
+  }
+
+  /** Live domain state from the Gateway. When a bind has just finished, the snapshot is refreshed so links follow. */
+  async domain(id: number) {
+    const { row, target } = this.domainTarget(id);
+    const status = await getDomain(target).catch(e => {
+      throw asFailure(e);
+    });
+    if (status.domain !== row.domain) await this.sync(id);
+    return status;
+  }
+
+  /** Runs x-ui's SSL flow on the node for `domain`, after checking that the domain points at the node. */
+  async bindDomain(id: number, domain: string, force = false) {
+    const { row, target } = this.domainTarget(id);
+    const name = domain.trim().toLowerCase();
+    const nodeHost = new URL(row.endpoint).hostname.replace(/^\[|\]$/g, '');
+    const [resolved, expected] = await Promise.all([dnsResolver.resolve4(name).catch(() => [] as string[]), isIP(nodeHost) ? [nodeHost] : dnsResolver.resolve4(nodeHost).catch(() => [] as string[])]);
+    if (!force && !resolved.some(ip => expected.includes(ip))) throw new ApiError(409, 'DOMAIN_DNS_MISMATCH', { resolved, expected });
+    await bindDomain(target, name).catch(e => {
+      throw asFailure(e);
+    });
+  }
+
+  async unbindDomain(id: number) {
+    const { target } = this.domainTarget(id);
+    await unbindDomain(target).catch(e => {
+      throw asFailure(e);
+    });
   }
 
   async syncAll(concurrency = 4) {
@@ -269,6 +320,17 @@ export function registerMachines(app: FastifyInstance, machines: Machines, syncI
   app.post<{ Params: { id: number } }>('/api/machines/:id/sync', { schema: { params: idParams } }, async req => {
     await machines.sync(req.params.id);
     return machines.get(req.params.id);
+  });
+
+  const domainBody = { type: 'object', required: ['domain'], additionalProperties: false, properties: { domain: { type: 'string', minLength: 3, maxLength: 253 }, force: { type: 'boolean' } } } as const;
+  app.get<{ Params: { id: number } }>('/api/machines/:id/domain', { schema: { params: idParams } }, req => machines.domain(req.params.id));
+  app.post<{ Params: { id: number }; Body: { domain: string; force?: boolean } }>('/api/machines/:id/domain', { schema: { params: idParams, body: domainBody } }, async (req, reply) => {
+    await machines.bindDomain(req.params.id, req.body.domain, req.body.force);
+    return reply.code(202).send(await machines.domain(req.params.id));
+  });
+  app.delete<{ Params: { id: number } }>('/api/machines/:id/domain', { schema: { params: idParams } }, async (req, reply) => {
+    await machines.unbindDomain(req.params.id);
+    return reply.code(202).send(await machines.domain(req.params.id));
   });
 
   if (syncIntervalMs > 0) {

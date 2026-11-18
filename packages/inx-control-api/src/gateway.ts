@@ -3,7 +3,7 @@ import { request } from 'node:https';
 import { isIP } from 'node:net';
 import { connect, type PeerCertificate } from 'node:tls';
 
-import type { GatewayClient, GatewayInbound, GatewayInfo } from '@inx.sh/gateway/protocol';
+import type { GatewayClient, GatewayDomain, GatewayInbound, GatewayInfo } from '@inx.sh/gateway/protocol';
 
 export type GatewayFailure =
   | 'GATEWAY_UNREACHABLE' // TCP/TLS connection failed
@@ -12,7 +12,8 @@ export type GatewayFailure =
   | 'GATEWAY_AUTH' // token rejected
   | 'GATEWAY_IDENTITY' // a different node answered
   | 'GATEWAY_RESPONSE' // malformed or unexpected response
-  | `PANEL_${string}`; // the Gateway reached its 3x-ui panel but the panel failed
+  | `PANEL_${string}` // the Gateway reached its 3x-ui panel but the panel failed
+  | `DOMAIN_${string}`; // a domain request the Gateway refused
 
 export class GatewayError extends Error {
   constructor(readonly code: GatewayFailure) {
@@ -54,20 +55,23 @@ export function fetchPinnedCertificate(endpoint: string, pin: string) {
   });
 }
 
-function get(target: GatewayTarget, path: string) {
+const get = (target: GatewayTarget, path: string) => send(target, 'GET', path);
+
+function send(target: GatewayTarget, method: 'GET' | 'POST' | 'DELETE', path: string, payload?: unknown) {
   const url = new URL(path, target.endpoint);
   const host = hostOf(target.endpoint);
+  const body = payload === undefined ? undefined : Buffer.from(JSON.stringify(payload));
   return new Promise<unknown>((resolve, reject) => {
     const req = request(
       url,
       {
-        method: 'GET',
+        method,
         agent: false,
         ca: target.cert,
         servername: isIP(host) ? undefined : host,
         // The pin is the identity; it is stricter than a hostname match against a self-signed certificate.
         checkServerIdentity: (_host: string, cert: PeerCertificate) => (pinOf(cert.raw) === target.pin ? undefined : new GatewayError('GATEWAY_CERT_MISMATCH')),
-        headers: { authorization: 'Bearer ' + target.token, accept: 'application/json' },
+        headers: { authorization: 'Bearer ' + target.token, accept: 'application/json', ...(body ? { 'content-type': 'application/json' } : {}) },
         signal: AbortSignal.timeout(timeoutMs)
       },
       res => {
@@ -88,10 +92,10 @@ function get(target: GatewayTarget, path: string) {
           } catch {
             return reject(new GatewayError('GATEWAY_RESPONSE'));
           }
-          if (res.statusCode === 200) return resolve(body);
+          if (res.statusCode === 200 || res.statusCode === 202) return resolve(body);
           if (res.statusCode === 401) return reject(new GatewayError('GATEWAY_AUTH'));
           const code = (body as { error?: unknown } | null)?.error;
-          reject(new GatewayError(typeof code === 'string' && /^PANEL_[A-Z_]{1,40}$/.test(code) ? (code as GatewayFailure) : 'GATEWAY_RESPONSE'));
+          reject(new GatewayError(typeof code === 'string' && /^(PANEL|DOMAIN)_[A-Z0-9_]{1,40}$/.test(code) ? (code as GatewayFailure) : 'GATEWAY_RESPONSE'));
         });
       }
     );
@@ -100,7 +104,7 @@ function get(target: GatewayTarget, path: string) {
       if (/CERT|SELF_SIGNED|ISSUER|SIGNATURE/.test(e.code ?? '')) return reject(new GatewayError('GATEWAY_CERT_MISMATCH'));
       reject(new GatewayError(networkFailure(e)));
     });
-    req.end();
+    req.end(body);
   });
 }
 
@@ -128,3 +132,13 @@ function parseClient(raw: unknown): GatewayClient {
   if (typeof c?.email !== 'string' || c.email === '' || typeof c.enabled !== 'boolean' || !Array.isArray(c.links) || !c.links.every(l => typeof l === 'string' && linkPattern.test(l))) throw new GatewayError('GATEWAY_RESPONSE');
   return { email: c.email, enabled: c.enabled, links: c.links, ...(typeof c.unsupported === 'string' ? { unsupported: c.unsupported } : {}) };
 }
+
+const domainStates = new Set(['idle', 'pending', 'issued', 'removed', 'failed']);
+export async function getDomain(target: GatewayTarget): Promise<GatewayDomain> {
+  const d = (await get(target, '/v1/domain')) as Partial<GatewayDomain> | null;
+  if (!d || !domainStates.has(d.state as string)) throw new GatewayError('GATEWAY_RESPONSE');
+  const text = (v: unknown) => (typeof v === 'string' && v ? v : null);
+  return { domain: text(d.domain), state: d.state!, requested: text(d.requested), error: text(d.error), log: typeof d.log === 'string' ? d.log : null, updatedAt: typeof d.updatedAt === 'number' ? d.updatedAt : null };
+}
+export const bindDomain = (target: GatewayTarget, domain: string) => send(target, 'POST', '/v1/domain', { domain });
+export const unbindDomain = (target: GatewayTarget) => send(target, 'DELETE', '/v1/domain');
