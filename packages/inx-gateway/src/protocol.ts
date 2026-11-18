@@ -76,5 +76,19 @@ export interface GatewayInbound {
   clients?: GatewayClient[];
 }
 
+/** GET /v1/domain (capability `domain`). */
+export interface GatewayDomain {
+  /** The domain of the 3x-ui panel certificate, read live from the panel; share links use it. null: links use the IP. */
+  domain: string | null;
+  /** Progress of the last bind/remove requested through the Gateway. */
+  state: 'idle' | 'pending' | 'issued' | 'removed' | 'failed';
+  requested: string | null;
+  /** DOMAIN_PORT_80_BUSY, DOMAIN_ACME_INSTALL_FAILED, DOMAIN_SOCAT_FAILED, DOMAIN_ACME_FAILED, DOMAIN_PANEL_FAILED, ... */
+  error: string | null;
+  /** Tail of the helper's log, for diagnosing a failed request. */
+  log: string | null;
+  updatedAt: number | null;
+}
+
 /** `error` values in Gateway error responses (401 GATEWAY_AUTH; 502/504 PANEL_*). */
 export type GatewayErrorCode = 'GATEWAY_AUTH' | 'PANEL_AUTH' | 'PANEL_PERMISSION' | 'PANEL_PATH' | 'PANEL_RESPONSE' | 'PANEL_RESPONSE_TOO_LARGE' | 'PANEL_UNREACHABLE' | 'PANEL_TLS' | 'PANEL_TIMEOUT';

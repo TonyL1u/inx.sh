@@ -13,6 +13,18 @@ export interface Config {
   trustProxy: string[];
   /** Background machine sync period; 0 disables it. */
   syncIntervalMs: number;
+  /** Set by `inx-connect domain`: the certificate the API serves HTTPS with, on its usual port. */
+  tls?: { cert: string; key: string };
+  /** The address devices reach the controller at (INX_PUBLIC_URL), used for subscription links. */
+  publicUrl?: string;
+}
+
+/** An http(s) origin without credentials or a path, e.g. https://console.example.com:3100. */
+export function publicOrigin(value: string | undefined) {
+  if (!value) return undefined;
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || (url.pathname !== '/' && url.pathname !== '') || url.search || url.hash) throw Error('INX_PUBLIC_URL must be an http(s) origin such as https://console.example.com:3100');
+  return url.origin;
 }
 
 const privateNetworks = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
@@ -41,8 +53,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     secretKey: parseSecretKey(secret),
     consoleDir,
     trustProxy: env.INX_TRUST_PROXY ? env.INX_TRUST_PROXY.split(',').map(s => s.trim()) : privateNetworks,
-    syncIntervalMs: Number(env.INX_SYNC_INTERVAL_SECONDS ?? 300) * 1000
+    syncIntervalMs: Number(env.INX_SYNC_INTERVAL_SECONDS ?? 300) * 1000,
+    tls: loadTls(env.INX_TLS_CERT ?? '/cert/fullchain.pem', env.INX_TLS_KEY ?? '/cert/privkey.pem'),
+    publicUrl: publicOrigin(env.INX_PUBLIC_URL)
   };
+}
+
+function loadTls(cert: string, key: string) {
+  if (!existsSync(cert) || !existsSync(key)) return undefined;
+  return { cert: readFileSync(cert, 'utf8'), key: readFileSync(key, 'utf8') };
 }
 
 export const dbPath = (config: Config) => join(config.dataDir, 'inx-connect.sqlite');

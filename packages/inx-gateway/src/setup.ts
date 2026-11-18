@@ -9,7 +9,9 @@ import { checkServerIdentity } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 
 import { type Config, gatewayUrl, matchesHost, pair, readConfig, saveConfig, secret } from './config.js';
-import { listInbounds, PanelError, panelUrl } from './panel.js';
+import { choosePort, defaultInbound } from './default-inbound.js';
+import { domainRequestFile, domainStatusFile } from './domain.js';
+import { addInbound, listInbounds, PanelError, panelUrl } from './panel.js';
 
 export const defaultDir = '/etc/inx-gateway';
 // Survives uninstall, so a reinstalled node keeps its identity and the controller can re-pair it in place.
@@ -138,6 +140,9 @@ function systemService() {
       'ProtectSystem=strict',
       'AmbientCapabilities=CAP_NET_BIND_SERVICE',
       'CapabilityBoundingSet=CAP_NET_BIND_SERVICE',
+      // The only place the service can write: domain requests for the root helper below.
+      'RuntimeDirectory=inx-gateway',
+      'RuntimeDirectoryMode=0755',
       '',
       '[Install]',
       'WantedBy=multi-user.target',
@@ -145,8 +150,20 @@ function systemService() {
     ].join('\n'),
     { mode: 0o644 }
   );
-  for (const args of [['daemon-reload'], ['enable', 'inx-gateway'], ['restart', 'inx-gateway']]) run('systemctl', args, 'systemctl ' + args.join(' '));
+  // Binding a domain from the controller runs 3x-ui's own SSL flow as root, outside the sandboxed service.
+  const script = fileURLToPath(new URL('../scripts/xui-domain.sh', import.meta.url));
+  writeFileSync(
+    domainUnits.service,
+    ['[Unit]', 'Description=INX Gateway: bind a domain with the x-ui SSL flow', 'After=network-online.target', '', '[Service]', 'Type=oneshot', 'Environment=HOME=/root', `ExecStart=/bin/bash ${script} ${domainRequestFile} ${domainStatusFile}`, ''].join(
+      '\n'
+    ),
+    { mode: 0o644 }
+  );
+  writeFileSync(domainUnits.path, ['[Unit]', 'Description=INX Gateway: watch for domain requests', '', '[Path]', `PathChanged=${domainRequestFile}`, '', '[Install]', 'WantedBy=multi-user.target', ''].join('\n'), { mode: 0o644 });
+  for (const args of [['daemon-reload'], ['enable', 'inx-gateway'], ['restart', 'inx-gateway'], ['enable', '--now', 'inx-gateway-domain.path']]) run('systemctl', args, 'systemctl ' + args.join(' '));
 }
+
+const domainUnits = { service: '/etc/systemd/system/inx-gateway-domain.service', path: '/etc/systemd/system/inx-gateway-domain.path' };
 
 export async function start() {
   if (process.platform !== 'linux' || process.getuid?.() !== 0) throw Error('Service setup requires Linux/systemd and root.');
@@ -225,6 +242,21 @@ export async function start() {
       }
     }
     if (fresh) process.stderr.write('\n');
+    // A panel we just installed has no inbounds: create one so the node is usable right after pairing.
+    let created: string | undefined;
+    if (fresh) {
+      try {
+        const existing = await listInbounds(panel);
+        if (existing.length === 0) {
+          const port = await choosePort(existing.map(i => i.port));
+          say('Creating a default VLESS + Reality inbound on TCP port ' + port);
+          await addInbound(panel, defaultInbound(port));
+          created = 'Created a VLESS + Reality inbound on TCP port ' + port + '. Allow inbound TCP ' + port + ' in your firewall or security group.';
+        }
+      } catch (e) {
+        process.stderr.write('warning: could not create the default inbound (' + (e instanceof Error ? e.message : 'unknown error') + '). Create one with sudo x-ui or the panel.\n');
+      }
+    }
     const token = old && Buffer.from(old.token, 'base64url').length === 16 ? old.token : secret(16);
     const config = { id, endpoint, token, panel, ...pem };
     saveConfig(dir, config);
@@ -237,6 +269,7 @@ export async function start() {
       try {
         await checkGateway(config);
         process.stderr.write('\n');
+        if (created) say(created);
         return pair(config);
       } catch {
         process.stderr.write('.');
@@ -286,6 +319,11 @@ export function uninstall() {
     rmSync('/etc/systemd/system/inx-gateway.service');
     removedUnits = true;
   }
+  if (existsSync(domainUnits.path)) {
+    run('systemctl', ['disable', '--now', 'inx-gateway-domain.path'], 'systemctl disable inx-gateway-domain.path');
+    removedUnits = true;
+  }
+  for (const unit of [domainUnits.path, domainUnits.service]) rmSync(unit, { force: true });
   if (panelManaged) {
     say('Removing the 3x-ui panel installed by the gateway...');
     if (existsSync('/etc/systemd/system/x-ui.service')) {

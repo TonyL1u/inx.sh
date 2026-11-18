@@ -53,7 +53,9 @@ const migrations = [
      position INTEGER NOT NULL,
      PRIMARY KEY (subscription_id, node_id)
    ) STRICT;
-   CREATE INDEX subscription_nodes_node ON subscription_nodes (node_id);`
+   CREATE INDEX subscription_nodes_node ON subscription_nodes (node_id);`,
+  // The node's domain as last reported by its Gateway: the 3x-ui panel certificate domain (null: links use the IP).
+  `ALTER TABLE machines ADD COLUMN domain TEXT;`
 ];
 
 export function openDb(path: string, secretKey: Buffer) {

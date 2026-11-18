@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { createServer as createHttpsServer } from 'node:https';
+import { createServer as createHttpsServer, get as httpsGet } from 'node:https';
 
 import { pair } from '@inx.sh/gateway/protocol';
 import { test } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import { openDb } from '../src/db.js';
-import { Machines } from '../src/machines.js';
+import { dnsResolver, Machines } from '../src/machines.js';
 import { certificate, fakeGateway, key, signedIn } from './helpers.js';
 
 test('pairing verifies the pinned certificate, stores the machine, and seals the token', async t => {
@@ -152,4 +152,74 @@ test('machine routes require a session', async t => {
   });
   assert.equal((await app.inject('/api/machines')).statusCode, 401);
   assert.equal((await app.inject({ method: 'POST', url: '/api/machines', payload: { pairCode: 'x' } })).statusCode, 401);
+});
+
+test('a VPS domain is bound through its Gateway after a DNS check, and followed on sync', async t => {
+  const gw = await fakeGateway(t);
+  gw.state.domain = 'old.example.com'; // already set in x-ui before pairing
+  const { call } = await signedIn(t);
+  const machine = (await call('POST', '/api/machines', { pairCode: gw.code() })).json().machine;
+  assert.equal(machine.domain, 'old.example.com');
+
+  const original = dnsResolver.resolve4;
+  t.onTestFinished(() => {
+    dnsResolver.resolve4 = original;
+  });
+  const records: Record<string, string[]> = { 'hk.example.com': ['198.51.100.1'], '127.0.0.1': ['127.0.0.1'] };
+  dnsResolver.resolve4 = async name => records[name] ?? [];
+
+  // The A record does not point at this VPS (127.0.0.1 here): refused with the addresses found, unless forced.
+  const mismatch = await call('POST', `/api/machines/${machine.id}/domain`, { domain: 'HK.example.com' });
+  assert.equal(mismatch.statusCode, 409);
+  assert.deepEqual(mismatch.json(), { resolved: ['198.51.100.1'], expected: ['127.0.0.1'], error: 'DOMAIN_DNS_MISMATCH' });
+  assert.deepEqual(gw.state.domainRequests, []);
+
+  records['hk.example.com'] = ['127.0.0.1'];
+  const bound = await call('POST', `/api/machines/${machine.id}/domain`, { domain: 'HK.example.com' });
+  assert.equal(bound.statusCode, 202);
+  assert.equal(bound.json().state, 'pending');
+  assert.deepEqual(gw.state.domainRequests, ['set hk.example.com']);
+  assert.equal((await call('POST', `/api/machines/${machine.id}/domain`, { domain: 'jp.example.com', force: true })).statusCode, 202);
+
+  // x-ui finished (or the user changed the certificate in x-ui): polling refreshes the machine.
+  gw.state.domain = 'hk.example.com';
+  gw.state.domainState = 'issued';
+  assert.equal((await call('GET', `/api/machines/${machine.id}/domain`)).json().domain, 'hk.example.com');
+  assert.equal((await call('GET', '/api/machines/' + machine.id)).json().machine.domain, 'hk.example.com');
+
+  assert.equal((await call('DELETE', `/api/machines/${machine.id}/domain`)).statusCode, 202);
+  assert.equal(gw.state.domainRequests.at(-1), 'remove');
+  gw.state.domain = null;
+  assert.equal((await call('POST', `/api/machines/${machine.id}/sync`)).json().machine.domain, null);
+});
+
+test('Gateways without domain support are told to upgrade', async t => {
+  const gw = await fakeGateway(t);
+  gw.state.capabilities = ['inbounds:list', 'inbounds:clients'];
+  const { call } = await signedIn(t);
+  const machine = (await call('POST', '/api/machines', { pairCode: gw.code() })).json().machine;
+  assert.equal(machine.domain, null);
+  assert.equal((await call('POST', `/api/machines/${machine.id}/domain`, { domain: 'hk.example.com', force: true })).json().error, 'GATEWAY_UPGRADE_REQUIRED');
+  assert.equal((await call('GET', `/api/machines/${machine.id}/domain`)).json().error, 'GATEWAY_UPGRADE_REQUIRED');
+});
+
+test('with a certificate the controller serves HTTPS on its port and advertises its public URL', async t => {
+  const tls = certificate();
+  const db = openDb(':memory:', key);
+  const app = await buildApp({ trustProxy: [], secretKey: key, syncIntervalMs: 0, tls: { cert: tls.cert, key: tls.key }, publicUrl: 'https://console.example.com:3100' }, db);
+  t.onTestFinished(async () => {
+    await app.close();
+    db.close();
+  });
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const port = (app.server.address() as { port: number }).port;
+  const status = await new Promise<{ tls: boolean; publicUrl: string }>((resolve, reject) =>
+    httpsGet(`https://127.0.0.1:${port}/api/status`, { ca: tls.cert }, res => {
+      let body = '';
+      res.on('data', c => (body += c));
+      res.on('end', () => resolve(JSON.parse(body)));
+    }).on('error', reject)
+  );
+  assert.equal(status.tls, true);
+  assert.equal(status.publicUrl, 'https://console.example.com:3100');
 });

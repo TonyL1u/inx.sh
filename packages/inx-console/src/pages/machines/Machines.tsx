@@ -19,6 +19,7 @@ export function Machines() {
     onSuccess: async result => {
       const { repaired: _repaired, ...detail } = result;
       queryClient.setQueryData<MachineDetail>(['machine', result.machine.id], detail);
+      void queryClient.invalidateQueries({ queryKey: ['clients'] });
       await queryClient.invalidateQueries({ queryKey: ['machines'] });
       setAdding(false);
       void navigate('/machines/' + result.machine.id);

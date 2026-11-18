@@ -16,7 +16,8 @@
   },
   "files": [
     "dist",
-    "scripts/install-panel.sh"
+    "scripts/install-panel.sh",
+    "scripts/xui-domain.sh"
   ],
   "engines": {
     "node": ">=22.18.0"

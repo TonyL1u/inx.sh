@@ -27,7 +27,7 @@ const json = (body: unknown) => ({ payload: JSON.stringify(body), headers: { 'co
 
 test('setup requires the one-time code, then signs in', async t => {
   const { app, db } = await server(t);
-  assert.deepEqual((await app.inject('/api/status')).json(), { initialized: false, authenticated: false });
+  assert.deepEqual((await app.inject('/api/status')).json(), { initialized: false, authenticated: false, tls: false, publicUrl: null });
   assert.equal((await app.inject('/api/auth/me')).statusCode, 401);
 
   const code = createSetupCode(db);
@@ -56,7 +56,7 @@ test('password login, logout, and reset codes', async t => {
   const login = await app.inject({ method: 'POST', url: '/api/auth/login', ...json({ password: 'first password' }) });
   assert.equal(login.statusCode, 200);
   const cookie = cookieOf(login);
-  assert.deepEqual((await app.inject({ url: '/api/status', headers: { cookie } })).json(), { initialized: true, authenticated: true });
+  assert.deepEqual((await app.inject({ url: '/api/status', headers: { cookie } })).json(), { initialized: true, authenticated: true, tls: false, publicUrl: null });
 
   // A reset code replaces the password and ends every existing session.
   const reset = createSetupCode(db, true);

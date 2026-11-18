@@ -35,6 +35,11 @@ export async function fakeGateway(t: TestContext, tls = certificate()) {
     token: randomBytes(16).toString('base64url'),
     version: '0.1.0-beta.3',
     panelError: '',
+    capabilities: ['inbounds:list', 'inbounds:clients', 'domain'],
+    /** What the node's x-ui panel certificate says, and the last domain request the Gateway received. */
+    domain: null as string | null,
+    domainState: 'idle',
+    domainRequests: [] as string[],
     inbounds: [
       {
         id: 1,
@@ -52,7 +57,18 @@ export async function fakeGateway(t: TestContext, tls = certificate()) {
   const server: Server = createHttpsServer({ ...tls }, (req, res) => {
     const send = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
     if (req.headers.authorization !== 'Bearer ' + state.token) return send(401, { error: 'GATEWAY_AUTH' });
-    if (req.url === '/v1/info') return send(200, { id: state.id, service: 'inx-gateway', apiVersion: 1, version: state.version, capabilities: ['inbounds:list', 'inbounds:clients'] });
+    if (req.url === '/v1/info') return send(200, { id: state.id, service: 'inx-gateway', apiVersion: 1, version: state.version, capabilities: state.capabilities });
+    if (req.url === '/v1/domain') {
+      if (req.method === 'GET') return send(200, { domain: state.domain, state: state.domainState, requested: null, error: null, log: null, updatedAt: null });
+      let raw = '';
+      req.on('data', chunk => (raw += chunk));
+      req.on('end', () => {
+        state.domainRequests.push(req.method === 'POST' ? 'set ' + (JSON.parse(raw) as { domain: string }).domain : 'remove');
+        state.domainState = 'pending';
+        send(202, { state: 'pending' });
+      });
+      return;
+    }
     if (req.url === '/v1/inbounds') return state.panelError ? send(502, { error: state.panelError }) : send(200, { inbounds: state.inbounds });
     send(404, { error: 'NOT_FOUND' });
   });
