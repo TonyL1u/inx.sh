@@ -1,7 +1,9 @@
 export class ApiError extends Error {
   constructor(
     readonly status: number,
-    readonly code: string
+    readonly code: string,
+    /** Other fields of the error body, e.g. `resolved`/`expected` for DOMAIN_DNS_MISMATCH. */
+    readonly data: Record<string, unknown> = {}
   ) {
     super(code);
   }
@@ -15,13 +17,26 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     credentials: 'same-origin'
   });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(res.status, data.error ?? 'HTTP_' + res.status);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? 'HTTP_' + res.status, data);
   return data as T;
 }
 
 export interface Status {
   initialized: boolean;
   authenticated: boolean;
+  /** HTTPS via `inx-connect domain`. */
+  tls: boolean;
+  /** INX_PUBLIC_URL: the address devices use for subscriptions. */
+  publicUrl: string | null;
+}
+
+export interface DomainStatus {
+  domain: string | null;
+  state: 'idle' | 'pending' | 'issued' | 'removed' | 'failed';
+  requested: string | null;
+  error: string | null;
+  log: string | null;
+  updatedAt: number | null;
 }
 
 const messages: Record<string, string> = {
@@ -53,7 +68,18 @@ const messages: Record<string, string> = {
   CLIENT_NOT_FOUND: '客户端已不在这个入站上，请先同步机器。',
   GATEWAY_UPGRADE_REQUIRED: '这台机器的 gateway 版本过旧，不提供客户端列表。请在 VPS 上重新运行安装脚本升级。',
   SUBSCRIPTION_NOT_FOUND: '订阅不存在或已被删除。',
-  INVALID_MEMBERS: '订阅成员有重复，或超过 500 个。'
+  INVALID_MEMBERS: '订阅成员有重复，或超过 500 个。',
+  DOMAIN_INVALID: '域名格式不正确。',
+  DOMAIN_BUSY: '这台 VPS 正在处理上一个域名请求，请稍候。',
+  DOMAIN_UNAVAILABLE: '这台 VPS 的 gateway 需要重新启动才能绑定域名。请在 VPS 上运行 sudo inx-gateway start。',
+  DOMAIN_DNS_MISMATCH: '域名没有解析到这台 VPS。',
+  DOMAIN_DNS_UNRESOLVED: 'VPS 上无法解析这个域名，请检查 DNS 记录。',
+  DOMAIN_PORT_80_BUSY: 'VPS 的 80 端口被占用。申请证书需要临时使用 80 端口，请先停止占用它的程序。',
+  DOMAIN_ACME_INSTALL_FAILED: '在 VPS 上安装 acme.sh 失败，请检查 VPS 能否访问外网。',
+  DOMAIN_SOCAT_FAILED: '在 VPS 上安装 socat 失败。',
+  DOMAIN_ACME_FAILED: '申请证书失败。请确认域名 A 记录指向这台 VPS，并且安全组和防火墙放行了 TCP 80。',
+  DOMAIN_PANEL_FAILED: '证书已申请，但设置到 3x-ui 面板失败。',
+  DOMAIN_TIMEOUT: '上一次申请没有完成就中断了，可以重新绑定。'
 };
 
 /** Short label for a machine's last error, for status badges. */
@@ -79,6 +105,8 @@ export interface Machine {
   syncedAt: number;
   checkedAt: number;
   createdAt: number;
+  /** The VPS domain from its 3x-ui panel certificate; links use it. null: links use the IP. */
+  domain: string | null;
 }
 
 export interface InboundClient {
@@ -164,7 +192,8 @@ export interface ClientRef {
 
 export const clientKey = (r: ClientRef) => `${r.machineId}\n${r.inboundId}\n${r.email.toLowerCase()}`;
 
-export const subscriptionUrl = (token: string) => location.origin + '/sub/' + token;
+/** Subscription links use the controller's public URL when one is configured, else the address the console is open at. */
+export const subscriptionUrl = (token: string, publicUrl: string | null | undefined) => (publicUrl ?? location.origin) + '/sub/' + token;
 
 export const nodeStatusLabel: Record<NodeStatus, string> = { ok: '可用', missing: '已不存在', disabled: '已停用', unsupported: '不支持', unknown: '需升级 gateway' };
 

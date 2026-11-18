@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 
 import { api, codeMessage, errorMessage, type MachineDetail as Detail } from '../../api';
 import { Badge, Button, ErrorText, Field, fullTime, Modal, SecondaryButton, timeAgo } from '../../ui';
+import { DomainCard } from './DomainCard';
 import { MachineStatus } from './MachineStatus';
 import { PairForm } from './PairForm';
 
@@ -88,6 +89,8 @@ export function MachineDetail() {
         </div>
       )}
       <ErrorText>{sync.isError ? errorMessage(sync.error) : null}</ErrorText>
+
+      <DomainCard machine={machine} />
 
       <dl className="grid grid-cols-2 gap-4 rounded-xl border border-zinc-200 bg-white p-4 text-sm sm:grid-cols-4 dark:border-zinc-800 dark:bg-zinc-900">
         <Stat label="Gateway 版本" value={machine.gatewayVersion} />

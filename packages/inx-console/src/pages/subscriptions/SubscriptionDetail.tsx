@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
-import { api, type ClientRef, errorMessage, type Node, type SubscriptionDetail as Detail, subscriptionUrl } from '../../api';
+import { api, type ClientRef, errorMessage, type Node, type Status, type SubscriptionDetail as Detail, subscriptionUrl } from '../../api';
 import { Button, ErrorText, Modal, NameForm, SecondaryButton, timeAgo } from '../../ui';
 import { ClientPicker } from './ClientPicker';
 import { inboundLabel, NodeStatus } from './NodeStatus';
@@ -16,6 +16,7 @@ export function SubscriptionDetail() {
   const navigate = useNavigate();
   const [dialog, setDialog] = useState<Dialog>(null);
   const [copied, setCopied] = useState(false);
+  const status = useQuery({ queryKey: ['status'], queryFn: () => api<Status>('/status') });
   const detail = useQuery({ queryKey: ['subscription', id], queryFn: () => api<Detail>('/subscriptions/' + id), enabled: Number.isSafeInteger(id) });
   const [renamingNode, setRenamingNode] = useState<Node | null>(null);
 
@@ -81,7 +82,7 @@ export function SubscriptionDetail() {
     );
 
   const { subscription, nodes } = detail.data;
-  const url = subscriptionUrl(subscription.token);
+  const url = subscriptionUrl(subscription.token, status.data?.publicUrl);
   const ids = nodes.map(n => n.id);
   const move = (from: number, to: number) => {
     const next = [...ids];
