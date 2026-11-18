@@ -33,7 +33,19 @@ The pairing code carries the endpoint, the gateway token, and the SHA-256 of the
 | -------------- | -------------------- | ----------------------------------------------------------------------- |
 | `/health`      | None                 | Service name and API version; does not query the panel                  |
 | `/v1/info`     | Gateway bearer token | Node ID, version, and capabilities                                      |
+| `/v1/domain` | Gateway bearer token | `GET`: the panel certificate's domain and the last bind request's progress. `POST { domain }` / `DELETE`: queue a bind or removal (202) |
 | `/v1/inbounds` | Gateway bearer token | `inbounds` array with `id`, `remark`, `protocol`, `port`, `enabled`, and `clients` (`email`, `enabled`, `links`, and `unsupported` when no link can be built) |
+
+**Domain.** A node's domain is 3x-ui's own: the panel certificate set by x-ui's "SSL Certificate Management". The Gateway reads its path through `getWebCertFiles` on every call and takes the domain from `/root/cert/<domain>/…` or `~/.acme.sh/<domain>[_ecc]/…`. Share links then use that domain instead of the public IP, so a domain set with `sudo x-ui` and one bound from the controller are the same thing.
+
+Binding from the controller needs root. The service only writes a one-line request to `/run/inx-gateway/domain-request`. `inx-gateway-domain.path` then starts a root oneshot that runs `scripts/xui-domain.sh`, which performs x-ui's `ssl_cert_issue` steps without prompts:
+
+1. acme.sh standalone validation on port 80;
+2. install the certificate to `/root/cert/<domain>/`, with `--reloadcmd "x-ui restart"`;
+3. `x-ui cert -webCert … -webCertKey …`;
+4. restart x-ui.
+
+Progress goes to `/run/inx-gateway/domain-status.json`. When the panel switches to HTTPS after a certificate is set, the Gateway's panel client follows it. There is no `inx-gateway` domain command.
 
 Share links are built by the Gateway from the panel's inbound list (`src/links.ts`), following 3x-ui v3.11.0's subscription engine: VLESS, VMess, Trojan, Shadowsocks and Hysteria over TCP (including the HTTP header), WebSocket, gRPC, HTTPUpgrade and XHTTP, with TLS or Reality, and one link per external proxy. They use the inbound's share address when it has one, otherwise the Gateway's public host. The panel's own link endpoints are outside the `node-sync` token's scope. Clients of other protocols (WireGuard, TUIC, MTProto, …) or kcp transports are listed with `unsupported` and no links.
 

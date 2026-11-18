@@ -4,23 +4,44 @@ The control API is the self-hosted INX Connect controller. It stores machines, n
 
 ## Install
 
-On any Linux host with Docker Engine and the Compose plugin:
+On any Linux host with Docker Engine and the Compose plugin, no options needed:
 
 ```sh
-# Bundled Caddy with automatic HTTPS (ports 80/443 free, DNS for the domain pointing at this host)
-curl -fsSL https://inx.sh/connect | sudo bash -s -- --domain console.example.com
-
-# No Caddy: listen on 127.0.0.1:3100 and put your own HTTPS reverse proxy in front
-curl -fsSL https://inx.sh/connect | sudo bash -s -- --no-domain
+curl -fsSL https://inx.sh/connect | sudo bash
 ```
 
-`https://inx.sh/connect` redirects to `connect.sh` on the repository's `main` branch. Other options: `--version latest|beta|X.Y.Z` (image tag), `--image REPO` and `--caddy-image IMAGE` (registry mirrors), and `--port N`. Options are saved in `/opt/inx-connect/.env`, so a rerun only needs what changes.
+Like x-ui's panel, the controller then listens on a public HTTP port: `http://<public IP>:3100`. Allow that port in the firewall or security group.
 
-The installer writes `/opt/inx-connect/{.env,compose.yaml}`, generates `INX_SECRET_KEY` (which encrypts stored gateway credentials), starts the stack, and prints a **one-time setup link** valid for 24 hours. Opening it sets the admin password; nobody can initialize the console without it.
+`https://inx.sh/connect` redirects to `connect.sh` on the repository's `main` branch. Optional flags, saved in `/opt/inx-connect/.env` so a rerun only needs what changes:
 
-Rerunning the installer upgrades in place and keeps the data and the key. Back up `/opt/inx-connect/.env` and `/opt/inx-connect/data` together: the database is useless without the key. The installer also adds a host helper:
+- `--version latest|beta|X.Y.Z`: the image tag;
+- `--image REPO`: a registry mirror;
+- `--port N`: the listen port.
+
+The installer writes `/opt/inx-connect/{.env,compose.yaml}`, generates `INX_SECRET_KEY` (which encrypts stored gateway credentials), starts the controller, and prints a **one-time setup link** valid for 24 hours. Opening it sets the admin password; nobody can initialize the console without it.
+
+Rerunning the installer upgrades in place and keeps the data, the key and the domain. Back up `/opt/inx-connect/.env` and `/opt/inx-connect/data` together: the database is useless without the key.
+
+### Domain and HTTPS
 
 ```sh
+sudo inx-connect domain console.example.com   # or without a name, to be asked
+sudo inx-connect domain --remove
+```
+
+This follows x-ui's "SSL Certificate Management → Get SSL (Domain)":
+
+- **Issuance:** acme.sh (installed on first use, with socat) validates the domain over HTTP on **port 80**. Port 80 must be free and reachable during issuance and renewals.
+- **Install:** the certificate goes to `/opt/inx-connect/cert/`, and acme.sh renews it by itself, restarting the controller.
+- **Serving:** the controller keeps its port and serves HTTPS itself, at `https://console.example.com:3100`.
+- **Links:** `INX_PUBLIC_URL` is set so subscription links use that address, whichever address the console is opened at. Devices that imported a link over the IP need the new one.
+
+`--remove` stops renewals and goes back to plain HTTP. Until a domain is configured, the console shows a warning that passwords and subscription links travel in plain text.
+
+### Host helper
+
+```sh
+sudo inx-connect url                 # the address devices use
 sudo inx-connect setup-code          # print a new setup link (first run only)
 sudo inx-connect setup-code --reset  # forgot the password: link that replaces it and signs out every session
 sudo inx-connect status | logs -f | restart
@@ -89,6 +110,19 @@ Renaming or changing members takes effect at the same URL the next time a device
 | `POST /api/subscriptions/:id/rotate` | New token |
 | `PATCH /api/nodes/:id` `{ name }` | Rename a picked client everywhere it is used. `GET/POST/DELETE /api/nodes` remain for scripting |
 
+A machine's **domain** is its 3x-ui panel certificate, the one x-ui's "SSL Certificate Management" sets. It can be set in two ways, and both are the same state:
+
+- in the console (「绑定域名」 on the machine page);
+- on the VPS with `sudo x-ui`.
+
+When set, that machine's share links use the domain instead of the IP. Binding from the console checks that the domain's A record points at the VPS: otherwise `409 DOMAIN_DNS_MISMATCH` with `resolved` and `expected`, unless `force: true` is sent. Then the Gateway runs x-ui's SSL flow on the VPS. The controller re-reads the domain on every sync, so changes made in x-ui show up here.
+
+| Route (session required) | Purpose |
+| --- | --- |
+| `GET /api/machines/:id/domain` | Live state from the Gateway: `domain`, and `state` (`idle`/`pending`/`issued`/`removed`/`failed`) with `error` and a `log` tail |
+| `POST /api/machines/:id/domain` `{ domain, force? }` | Bind: DNS check, then x-ui's SSL flow on the VPS (202, poll the GET) |
+| `DELETE /api/machines/:id/domain` | Reset the panel certificate (links go back to the IP) |
+
 `GET /api/machines/:id` lists each inbound's clients (email, enabled, link count, `unsupported`, imported `nodeId`) but never the links, plus `usage` (nodes and subscriptions that depend on the machine).
 
 ## Configuration
@@ -100,6 +134,8 @@ Renaming or changing members takes effect at the same URL the next time a device
 | `HOST` / `PORT` | `0.0.0.0` / `3100` (image) | Listen address |
 | `INX_TRUST_PROXY` | private networks | Comma-separated addresses or CIDRs whose `X-Forwarded-*` headers are trusted |
 | `INX_CONSOLE_DIR` | `public/` next to the bundle | Console build to serve |
+| `INX_TLS_CERT` / `INX_TLS_KEY` | `/cert/fullchain.pem` / `/cert/privkey.pem` | When both exist, the API serves HTTPS on its port (`inx-connect domain` puts them there) |
+| `INX_PUBLIC_URL` | unset | Origin devices reach the controller at, e.g. `https://console.example.com:3100`; subscription links use it |
 | `INX_SYNC_INTERVAL_SECONDS` | `300` | How often every machine is re-synced in the background; `0` disables it |
 | `INX_GATEWAY_TIMEOUT_MS` | `10000` | Timeout for each request to a Gateway |
 
