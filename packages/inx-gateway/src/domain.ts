@@ -5,7 +5,7 @@
 // Binding from the controller needs root (acme.sh, port 80, x-ui settings). The unprivileged service only writes a
 // one-line request into its runtime directory; inx-gateway-domain.path starts the root oneshot that runs
 // scripts/xui-domain.sh, which reports progress in the status file next to it.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 
 import type { GatewayDomain } from './protocol.js';
 
@@ -30,8 +30,19 @@ export function requestDomainRemoval() {
   writeFileSync(domainRequestFile, 'remove\n', { mode: 0o644 });
 }
 
-/** Progress of the last request, written by xui-domain.sh. Absent before any request. */
+/** Progress of the last request: written by xui-domain.sh, or pending while a queued request waits for it. */
 export function domainStatus(): Pick<GatewayDomain, 'state' | 'requested' | 'error' | 'log' | 'updatedAt'> {
+  const reported = reportedStatus();
+  // A request newer than the last report has not been picked up yet.
+  const queued = statSync(domainRequestFile, { throwIfNoEntry: false });
+  if (queued && queued.mtimeMs > (reported.updatedAt ?? 0) + 999) {
+    const line = readFileSync(domainRequestFile, 'utf8').trim().split(/\s+/);
+    return { state: 'pending', requested: line[0] === 'set' ? (line[1] ?? null) : null, error: null, log: null, updatedAt: queued.mtimeMs };
+  }
+  return reported;
+}
+
+function reportedStatus(): Pick<GatewayDomain, 'state' | 'requested' | 'error' | 'log' | 'updatedAt'> {
   try {
     const s = JSON.parse(readFileSync(domainStatusFile, 'utf8')) as Record<string, unknown>;
     let state = ['pending', 'issued', 'removed', 'failed'].includes(s.state as string) ? (s.state as GatewayDomain['state']) : 'idle';

@@ -67,6 +67,8 @@ test('binding only queues a validated request for the root helper', async t => {
   const queued = await call('POST', '/v1/domain', { domain: 'HK.example.com' });
   assert.equal(queued.statusCode, 202);
   assert.equal(readFileSync(join(runtime, 'domain-request'), 'utf8'), 'set hk.example.com\n');
+  // Queued but not yet picked up by the root helper: already reported as pending.
+  assert.deepEqual(((await call('GET', '/v1/domain')).json() as { state: string; requested: string }).state, 'pending');
 
   // The helper reports progress; a request in flight blocks another.
   writeFileSync(join(runtime, 'domain-status.json'), JSON.stringify({ state: 'pending', domain: 'hk.example.com', error: '', log: 'Binding hk.example.com', updatedAt: Math.floor(Date.now() / 1000) }));
