@@ -9,7 +9,8 @@ import { checkServerIdentity } from 'node:tls';
 import { fileURLToPath } from 'node:url';
 
 import { type Config, gatewayUrl, matchesHost, pair, readConfig, saveConfig, secret } from './config.js';
-import { listInbounds, PanelError, panelUrl } from './panel.js';
+import { choosePort, defaultInbound } from './default-inbound.js';
+import { addInbound, listInbounds, PanelError, panelUrl } from './panel.js';
 
 export const defaultDir = '/etc/inx-gateway';
 // Survives uninstall, so a reinstalled node keeps its identity and the controller can re-pair it in place.
@@ -225,6 +226,21 @@ export async function start() {
       }
     }
     if (fresh) process.stderr.write('\n');
+    // A panel we just installed has no inbounds: create one so the node is usable right after pairing.
+    let created: string | undefined;
+    if (fresh) {
+      try {
+        const existing = await listInbounds(panel);
+        if (existing.length === 0) {
+          const port = await choosePort(existing.map(i => i.port));
+          say('Creating a default VLESS + Reality inbound on TCP port ' + port);
+          await addInbound(panel, defaultInbound(port));
+          created = 'Created a VLESS + Reality inbound on TCP port ' + port + '. Allow inbound TCP ' + port + ' in your firewall or security group.';
+        }
+      } catch (e) {
+        process.stderr.write('warning: could not create the default inbound (' + (e instanceof Error ? e.message : 'unknown error') + '). Create one with sudo x-ui or the panel.\n');
+      }
+    }
     const token = old && Buffer.from(old.token, 'base64url').length === 16 ? old.token : secret(16);
     const config = { id, endpoint, token, panel, ...pem };
     saveConfig(dir, config);
@@ -237,6 +253,7 @@ export async function start() {
       try {
         await checkGateway(config);
         process.stderr.write('\n');
+        if (created) say(created);
         return pair(config);
       } catch {
         process.stderr.write('.');

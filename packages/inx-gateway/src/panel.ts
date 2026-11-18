@@ -1,5 +1,5 @@
-import { get as httpGet } from 'node:http';
-import { get as httpsGet } from 'node:https';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 
 import { clientLinks, type PanelClient, parseJson } from './links.js';
 import type { GatewayClient, GatewayInbound } from './protocol.js';
@@ -18,16 +18,24 @@ export function panelUrl(value: string) {
 }
 
 export class PanelError extends Error {
-  constructor(readonly code: string) {
-    super(code);
+  constructor(
+    readonly code: string,
+    /** The panel's own message, for PANEL_REJECTED (a write the panel refused). Never forwarded to clients. */
+    readonly detail?: string
+  ) {
+    super(detail ? code + ': ' + detail : code);
   }
 }
 
-export async function listInbounds(panel: Panel) {
-  const url = new URL(panelUrl(panel.url) + '/panel/api/inbounds/list');
+// One JSON call to the panel API with the node-sync bearer token. Returns `obj` of a `{ success: true, obj }` envelope.
+async function panelCall(panel: Panel, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+  const url = new URL(panelUrl(panel.url) + path);
+  const payload = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   const data = await new Promise<Buffer>((resolve, reject) => {
-    const get = url.protocol === 'https:' ? httpsGet : httpGet;
-    const request = get(url, { headers: { authorization: 'Bearer ' + panel.token, accept: 'application/json' }, agent: false, ca: panel.ca, servername: panel.serverName, rejectUnauthorized: true, signal: AbortSignal.timeout(8000) }, response => {
+    const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
+    const headers: Record<string, string> = { authorization: 'Bearer ' + panel.token, accept: 'application/json' };
+    if (payload) headers['content-type'] = 'application/json';
+    const request = send(url, { method, headers, agent: false, ca: panel.ca, servername: panel.serverName, rejectUnauthorized: true, signal: AbortSignal.timeout(method === 'GET' ? 8000 : 20000) }, response => {
       const status = response.statusCode;
       if (status !== 200) {
         reject(new PanelError(status === 401 ? 'PANEL_AUTH' : status === 403 ? 'PANEL_PERMISSION' : status === 404 ? 'PANEL_PATH' : 'PANEL_RESPONSE'));
@@ -47,15 +55,29 @@ export async function listInbounds(panel: Panel) {
       response.on('end', () => resolve(Buffer.concat(chunks)));
     });
     request.on('error', (e: NodeJS.ErrnoException) => reject(new PanelError(e.code === 'ABORT_ERR' ? 'PANEL_TIMEOUT' : /CERT|TLS|ISSUER|SELF_SIGNED/.test(e.code ?? '') ? 'PANEL_TLS' : 'PANEL_UNREACHABLE')));
+    request.end(payload);
   });
-  let rows: Record<string, unknown>[];
+  let result: { success?: unknown; msg?: unknown; obj?: unknown };
   try {
-    const result = JSON.parse(data.toString());
-    if (result?.success !== true || !Array.isArray(result.obj)) throw Error();
-    rows = result.obj;
+    result = JSON.parse(data.toString());
   } catch {
     throw new PanelError('PANEL_RESPONSE');
   }
+  if (result?.success !== true) throw new PanelError(method === 'GET' ? 'PANEL_RESPONSE' : 'PANEL_REJECTED', typeof result?.msg === 'string' ? result.msg : undefined);
+  return result.obj;
+}
+
+/** Creates an inbound; 3x-ui accepts its clients inside settings. Returns the new inbound ID. */
+export async function addInbound(panel: Panel, inbound: Record<string, unknown>) {
+  const obj = (await panelCall(panel, 'POST', '/panel/api/inbounds/add', inbound)) as { id?: unknown } | null;
+  if (!Number.isSafeInteger(obj?.id)) throw new PanelError('PANEL_RESPONSE');
+  return obj!.id as number;
+}
+
+export async function listInbounds(panel: Panel) {
+  const obj = await panelCall(panel, 'GET', '/panel/api/inbounds/list');
+  if (!Array.isArray(obj)) throw new PanelError('PANEL_RESPONSE');
+  const rows = obj as Record<string, unknown>[];
   return rows.map(row => {
     if (!row || !Number.isSafeInteger(row.id) || typeof row.protocol !== 'string' || typeof row.enable !== 'boolean' || !Number.isInteger(row.port)) throw new PanelError('PANEL_RESPONSE');
     return {
