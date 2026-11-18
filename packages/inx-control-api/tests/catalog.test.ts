@@ -149,3 +149,58 @@ test('renameLink replaces the fragment or the vmess ps field', () => {
   const vmess = 'vmess://' + Buffer.from(JSON.stringify({ add: 'h', ps: 'old', port: 1 })).toString('base64');
   assert.equal(JSON.parse(Buffer.from(renameLink(vmess, '新').slice(8), 'base64').toString()).ps, '新');
 });
+
+test('picking clients creates the subscription directly; nodes are created on demand and reused', async t => {
+  const { call, hkId, jpId } = await twoMachines(t);
+  const tree = (await call('GET', '/api/clients')).json().machines;
+  assert.deepEqual(
+    tree.map((m: { name: string; clientsListed: boolean }) => [m.name, m.clientsListed]),
+    [
+      ['香港', true],
+      ['日本', true]
+    ]
+  );
+  assert.deepEqual(tree[1].inbounds[1].clients[0], { email: 'phone', enabled: true, unsupported: 'protocol:wireguard', linkCount: 0, nodeId: null, nodeName: null });
+
+  const created = await call('POST', '/api/subscriptions', {
+    name: '我的 iPhone',
+    clients: [
+      { machineId: jpId, inboundId: 7, email: 'phone' },
+      { machineId: hkId, inboundId: 1, email: 'LAPTOP' }
+    ]
+  });
+  assert.equal(created.statusCode, 201);
+  const sub = created.json();
+  assert.deepEqual(
+    sub.nodes.map((n: { name: string }) => n.name),
+    ['日本 JP Trojan', '香港 HK Reality · laptop']
+  );
+  assert.equal(decode((await call('GET', '/sub/' + sub.subscription.token)).body).length, 2);
+
+  // The same client in a second subscription reuses its node (and its name).
+  const laptop = sub.nodes[1].id;
+  await call('PATCH', '/api/nodes/' + laptop, { name: '香港 笔记本' });
+  const second = (await call('POST', '/api/subscriptions', { name: '家庭网络', clients: [{ machineId: hkId, inboundId: 1, email: 'laptop' }] })).json();
+  assert.deepEqual(
+    second.nodes.map((n: { id: number; name: string }) => [n.id, n.name]),
+    [[laptop, '香港 笔记本']]
+  );
+  assert.equal((await call('GET', '/api/clients')).json().machines[0].inbounds[0].clients[1].nodeName, '香港 笔记本');
+
+  // Re-picking replaces members in the new order.
+  const updated = await call('PUT', `/api/subscriptions/${sub.subscription.id}/clients`, {
+    clients: [
+      { machineId: hkId, inboundId: 1, email: 'phone' },
+      { machineId: hkId, inboundId: 1, email: 'laptop' }
+    ]
+  });
+  assert.deepEqual(
+    updated.json().nodes.map((n: { name: string }) => n.name),
+    ['香港 HK Reality · phone', '香港 笔记本']
+  );
+
+  // Unknown clients are rejected and nothing is created.
+  const bad = await call('POST', '/api/subscriptions', { name: 'x', clients: [{ machineId: hkId, inboundId: 1, email: 'tablet' }] });
+  assert.equal(bad.json().error, 'CLIENT_NOT_FOUND');
+  assert.equal((await call('GET', '/api/subscriptions')).json().subscriptions.length, 2);
+});

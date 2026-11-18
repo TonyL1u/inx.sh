@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useEffect, useRef } from 'react';
+import { type ButtonHTMLAttributes, type FormEvent, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes, useEffect, useRef, useState } from 'react';
 
 export function Button({ className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -80,7 +80,7 @@ export function TextArea({ label, hint, ...props }: TextareaHTMLAttributes<HTMLT
 }
 
 // A native <dialog>: focus trapping, Escape to close and the backdrop come from the browser.
-export function Modal({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+export function Modal({ open, title, onClose, children, wide = false }: { open: boolean; title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -96,7 +96,7 @@ export function Modal({ open, title, onClose, children }: { open: boolean; title
         e.preventDefault();
         onClose();
       }}
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/40 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100">
+      className={(wide ? 'max-w-2xl ' : 'max-w-md ') + 'm-auto w-[calc(100%-2rem)] rounded-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-xl backdrop:bg-black/40 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100'}>
       {open && (
         <div className="space-y-5 p-6">
           <h2 className="text-lg font-semibold">{title}</h2>
@@ -131,3 +131,41 @@ export function timeAgo(ms: number, now = Date.now()) {
   return relative.format(seconds, 'second');
 }
 export const fullTime = (ms: number) => new Date(ms).toLocaleString('zh-CN', { hour12: false });
+
+export function NameForm({
+  initial,
+  hint,
+  pending,
+  error,
+  submitLabel = '保存',
+  onSubmit,
+  onCancel
+}: {
+  initial: string;
+  hint?: string;
+  pending: boolean;
+  error: string | null;
+  submitLabel?: string;
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(initial);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (name.trim()) onSubmit(name.trim());
+  };
+  return (
+    <form className="space-y-4" onSubmit={submit}>
+      <Field label="名称" required autoFocus maxLength={64} value={name} onChange={e => setName(e.target.value)} hint={hint} />
+      <ErrorText>{error}</ErrorText>
+      <div className="flex justify-end gap-2">
+        <SecondaryButton type="button" onClick={onCancel} disabled={pending}>
+          取消
+        </SecondaryButton>
+        <Button type="submit" className="h-9" disabled={pending || !name.trim()}>
+          {submitLabel}
+        </Button>
+      </div>
+    </form>
+  );
+}

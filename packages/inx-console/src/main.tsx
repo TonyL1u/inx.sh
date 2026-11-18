@@ -9,9 +9,9 @@ import { api, ApiError, type Status } from './api';
 import { Login } from './pages/Login';
 import { MachineDetail } from './pages/machines/MachineDetail';
 import { Machines } from './pages/machines/Machines';
-import { Nodes } from './pages/nodes/Nodes';
 import { Setup } from './pages/Setup';
 import { Shell } from './pages/Shell';
+import { NewSubscription } from './pages/subscriptions/NewSubscription';
 import { SubscriptionDetail } from './pages/subscriptions/SubscriptionDetail';
 import { Subscriptions } from './pages/subscriptions/Subscriptions';
 
@@ -53,8 +53,8 @@ const router = createBrowserRouter([
           { index: true, element: <Navigate to="/machines" replace /> },
           { path: '/machines', element: <Machines /> },
           { path: '/machines/:id', element: <MachineDetail /> },
-          { path: '/nodes', element: <Nodes /> },
           { path: '/subscriptions', element: <Subscriptions /> },
+          { path: '/subscriptions/new', element: <NewSubscription /> },
           { path: '/subscriptions/:id', element: <SubscriptionDetail /> },
           { path: '*', element: <Navigate to="/machines" replace /> }
         ]

@@ -3,12 +3,12 @@ import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
-import { api, errorMessage, type SubscriptionDetail as Detail, subscriptionUrl } from '../../api';
-import { Badge, ErrorText, Modal, SecondaryButton, timeAgo } from '../../ui';
-import { NameForm, nodesQuery } from '../nodes/Nodes';
-import { inboundLabel, NodeStatus } from '../nodes/NodeStatus';
+import { api, type ClientRef, errorMessage, type Node, type SubscriptionDetail as Detail, subscriptionUrl } from '../../api';
+import { Button, ErrorText, Modal, NameForm, SecondaryButton, timeAgo } from '../../ui';
+import { ClientPicker } from './ClientPicker';
+import { inboundLabel, NodeStatus } from './NodeStatus';
 
-type Dialog = 'rename' | 'rotate' | 'delete' | 'add' | 'qr' | null;
+type Dialog = 'rename' | 'rotate' | 'delete' | 'pick' | 'qr' | null;
 
 export function SubscriptionDetail() {
   const id = Number(useParams().id);
@@ -17,7 +17,7 @@ export function SubscriptionDetail() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [copied, setCopied] = useState(false);
   const detail = useQuery({ queryKey: ['subscription', id], queryFn: () => api<Detail>('/subscriptions/' + id), enabled: Number.isSafeInteger(id) });
-  const allNodes = useQuery({ ...nodesQuery, enabled: dialog === 'add' });
+  const [renamingNode, setRenamingNode] = useState<Node | null>(null);
 
   const saved = (data: Detail) => {
     queryClient.setQueryData(['subscription', id], data);
@@ -25,6 +25,23 @@ export function SubscriptionDetail() {
     void queryClient.invalidateQueries({ queryKey: ['nodes'] });
   };
   const members = useMutation({ mutationFn: (nodeIds: number[]) => api<Detail>(`/subscriptions/${id}/nodes`, { method: 'PUT', body: { nodeIds } }), onSuccess: saved });
+  const pick = useMutation({
+    mutationFn: (clients: ClientRef[]) => api<Detail>(`/subscriptions/${id}/clients`, { method: 'PUT', body: { clients } }),
+    onSuccess: data => {
+      saved(data);
+      void queryClient.invalidateQueries({ queryKey: ['clients'] });
+      setDialog(null);
+    }
+  });
+  // A node's name is shared by every subscription that contains the client.
+  const renameNode = useMutation({
+    mutationFn: ({ nodeId, name }: { nodeId: number; name: string }) => api(`/nodes/${nodeId}`, { method: 'PATCH', body: { name } }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['subscription'] });
+      void queryClient.invalidateQueries({ queryKey: ['clients'] });
+      setRenamingNode(null);
+    }
+  });
   const rename = useMutation({
     mutationFn: (name: string) => api<Detail>('/subscriptions/' + id, { method: 'PATCH', body: { name } }),
     onSuccess: data => {
@@ -91,7 +108,7 @@ export function SubscriptionDetail() {
         <div className="min-w-0 space-y-1">
           <h1 className="truncate text-2xl font-semibold">{subscription.name}</h1>
           <p className="text-sm text-zinc-500">
-            {nodes.length} 个节点{available < nodes.length && `，其中 ${nodes.length - available} 个当前不可用、不会出现在订阅中`} · 更新于{timeAgo(subscription.updatedAt)}
+            {nodes.length} 个客户端{available < nodes.length && `，其中 ${nodes.length - available} 个当前不可用、不会出现在订阅中`} · 更新于{timeAgo(subscription.updatedAt)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -115,12 +132,12 @@ export function SubscriptionDetail() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="font-semibold">节点 · 按订阅中的顺序</h2>
-          <SecondaryButton onClick={() => setDialog('add')}>添加节点</SecondaryButton>
+          <h2 className="font-semibold">客户端 · 按订阅中的顺序</h2>
+          <SecondaryButton onClick={() => setDialog('pick')}>选择客户端</SecondaryButton>
         </div>
         <ErrorText>{members.isError ? errorMessage(members.error) : null}</ErrorText>
         {nodes.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">还没有节点。点击「添加节点」从任意机器选择。</p>
+          <p className="rounded-xl border border-dashed border-zinc-300 px-6 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">还没有客户端。点击「选择客户端」从任意机器勾选。</p>
         ) : (
           <ol className="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
             {nodes.map((node, i) => (
@@ -136,6 +153,9 @@ export function SubscriptionDetail() {
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
+                  <IconButton label="重命名" onClick={() => setRenamingNode(node)}>
+                    ✎
+                  </IconButton>
                   <IconButton label="上移" disabled={i === 0 || members.isPending} onClick={() => move(i, i - 1)}>
                     ↑
                   </IconButton>
@@ -152,16 +172,28 @@ export function SubscriptionDetail() {
         )}
       </div>
 
-      <Modal open={dialog === 'add'} title="添加节点" onClose={close}>
-        <AddNodes
-          candidates={(allNodes.data ?? []).filter(n => !ids.includes(n.id))}
-          loading={allNodes.isPending}
-          onAdd={picked => {
-            members.mutate([...ids, ...picked]);
-            setDialog(null);
-          }}
-          onCancel={close}
-        />
+      <Modal open={dialog === 'pick'} title="选择客户端" onClose={close} wide>
+        {dialog === 'pick' && (
+          <PickClients
+            initial={nodes.map(n => ({ machineId: n.machineId, inboundId: n.inboundId, email: n.clientEmail }))}
+            pending={pick.isPending}
+            error={pick.isError ? errorMessage(pick.error) : null}
+            onSave={refs => pick.mutate(refs)}
+            onCancel={close}
+          />
+        )}
+      </Modal>
+      <Modal open={renamingNode !== null} title="重命名" onClose={() => setRenamingNode(null)}>
+        {renamingNode && (
+          <NameForm
+            initial={renamingNode.name}
+            hint={renamingNode.subscriptionCount > 1 ? `这个客户端在 ${renamingNode.subscriptionCount} 个订阅中，名称会同时更新。` : '设备刷新订阅后显示新名称。'}
+            pending={renameNode.isPending}
+            error={renameNode.isError ? errorMessage(renameNode.error) : null}
+            onSubmit={name => renameNode.mutate({ nodeId: renamingNode.id, name })}
+            onCancel={() => setRenamingNode(null)}
+          />
+        )}
       </Modal>
       <Modal open={dialog === 'qr'} title="扫码导入" onClose={close}>
         <QrImage text={url} />
@@ -184,7 +216,7 @@ export function SubscriptionDetail() {
         </div>
       </Modal>
       <Modal open={dialog === 'delete'} title={`删除「${subscription.name}」？`} onClose={close}>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">订阅链接会立即失效。节点本身不会被删除。</p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">订阅链接会立即失效。机器和 3x-ui 中的客户端不受影响。</p>
         <ErrorText>{remove.isError ? errorMessage(remove.error) : null}</ErrorText>
         <div className="flex justify-end gap-2">
           <SecondaryButton onClick={close}>取消</SecondaryButton>
@@ -197,47 +229,25 @@ export function SubscriptionDetail() {
   );
 }
 
-function AddNodes({ candidates, loading, onAdd, onCancel }: { candidates: Detail['nodes']; loading: boolean; onAdd: (ids: number[]) => void; onCancel: () => void }) {
-  const [picked, setPicked] = useState<number[]>([]);
-  if (loading) return null;
-  const byMachine = Map.groupBy(candidates, n => n.machineName);
+// Current members stay in their order; newly ticked clients are appended.
+function PickClients({ initial, pending, error, onSave, onCancel }: { initial: ClientRef[]; pending: boolean; error: string | null; onSave: (refs: ClientRef[]) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(initial);
   return (
     <div className="space-y-4">
-      {candidates.length === 0 ? (
-        <p className="text-sm text-zinc-500">
-          没有可添加的节点。先在
-          <Link to="/nodes" className="underline">
-            「节点」页
-          </Link>
-          导入。
-        </p>
-      ) : (
-        <div className="max-h-[50vh] space-y-4 overflow-y-auto">
-          {[...byMachine].map(([machine, list]) => (
-            <fieldset key={machine} className="space-y-1">
-              <legend className="mb-1 text-xs font-medium text-zinc-500">{machine}</legend>
-              {list.map(n => (
-                <label key={n.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                  <input type="checkbox" className="size-4" checked={picked.includes(n.id)} onChange={e => setPicked(e.target.checked ? [...picked, n.id] : picked.filter(x => x !== n.id))} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm">{n.name}</span>
-                    <span className="block truncate text-xs text-zinc-500">
-                      {inboundLabel(n)} · {n.clientEmail}
-                    </span>
-                  </span>
-                  {n.status !== 'ok' && <NodeStatus node={n} />}
-                  {n.subscriptionCount > 0 && <Badge tone="zinc">{n.subscriptionCount} 个订阅</Badge>}
-                </label>
-              ))}
-            </fieldset>
-          ))}
+      <div className="max-h-[60vh] overflow-y-auto">
+        <ClientPicker value={value} onChange={setValue} />
+      </div>
+      <ErrorText>{error}</ErrorText>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-zinc-500">已选 {value.length} 个</span>
+        <div className="flex gap-2">
+          <SecondaryButton onClick={onCancel} disabled={pending}>
+            取消
+          </SecondaryButton>
+          <Button className="h-9" disabled={pending} onClick={() => onSave(value)}>
+            保存
+          </Button>
         </div>
-      )}
-      <div className="flex justify-end gap-2">
-        <SecondaryButton onClick={onCancel}>取消</SecondaryButton>
-        <SecondaryButton disabled={picked.length === 0} onClick={() => onAdd(picked)}>
-          添加 {picked.length > 0 && picked.length}
-        </SecondaryButton>
       </div>
     </div>
   );

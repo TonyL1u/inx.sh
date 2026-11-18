@@ -5,7 +5,6 @@ import { api } from '../api';
 
 const links = [
   { to: '/machines', label: '机器' },
-  { to: '/nodes', label: '节点' },
   { to: '/subscriptions', label: '订阅' }
 ];
 

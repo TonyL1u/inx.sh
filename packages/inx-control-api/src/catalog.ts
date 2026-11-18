@@ -30,6 +30,30 @@ export interface NodeView {
   createdAt: number;
 }
 
+/** A client picked by address: machine, inbound, client email (case-insensitive). */
+export interface ClientRef {
+  machineId: number;
+  inboundId: number;
+  email: string;
+}
+
+/** Every machine's clients, for picking subscription members. Links stay server-side. */
+export interface ClientTreeMachine {
+  id: number;
+  name: string;
+  status: 'online' | 'error';
+  /** false: the Gateway predates client listing. */
+  clientsListed: boolean;
+  inbounds: {
+    id: number;
+    remark: string;
+    protocol: string;
+    port: number;
+    enabled: boolean;
+    clients: { email: string; enabled: boolean; unsupported: string | null; linkCount: number; nodeId: number | null; nodeName: string | null }[];
+  }[];
+}
+
 export interface SubscriptionView {
   id: number;
   name: string;
@@ -144,6 +168,49 @@ export class Catalog {
     }
   }
 
+  // ---- clients (the picker's view: nodes are created on demand)
+
+  clientTree(): ClientTreeMachine[] {
+    const machines = this.db.prepare('SELECT id, name, last_error, inbounds FROM machines ORDER BY created_at, id').all() as { id: number; name: string; last_error: string | null; inbounds: string }[];
+    const nodes = this.db.prepare('SELECT id, name, machine_id, inbound_id, client_email FROM nodes').all() as { id: number; name: string; machine_id: number; inbound_id: number; client_email: string }[];
+    const byKey = new Map(nodes.map(n => [`${n.machine_id}\n${n.inbound_id}\n${n.client_email.toLowerCase()}`, n]));
+    return machines.map(m => {
+      const inbounds = JSON.parse(m.inbounds) as GatewayInbound[];
+      return {
+        id: m.id,
+        name: m.name,
+        status: m.last_error ? 'error' : 'online',
+        clientsListed: inbounds.every(ib => ib.clients !== undefined),
+        inbounds: inbounds.map(ib => ({
+          id: ib.id,
+          remark: ib.remark,
+          protocol: ib.protocol,
+          port: ib.port,
+          enabled: ib.enabled,
+          clients: (ib.clients ?? []).map(c => {
+            const node = byKey.get(`${m.id}\n${ib.id}\n${c.email.toLowerCase()}`);
+            return { email: c.email, enabled: c.enabled, unsupported: c.unsupported ?? null, linkCount: c.links.length, nodeId: node?.id ?? null, nodeName: node?.name ?? null };
+          })
+        }))
+      };
+    });
+  }
+
+  /** The node for a client, created with the default name the first time the client is picked. */
+  private ensureNode(ref: ClientRef) {
+    const existing = this.db.prepare('SELECT id FROM nodes WHERE machine_id = ? AND inbound_id = ? AND client_email = ? COLLATE NOCASE').get(ref.machineId, ref.inboundId, ref.email) as { id: number } | undefined;
+    return existing?.id ?? this.createNode({ machineId: ref.machineId, inboundId: ref.inboundId, clientEmail: ref.email }).id;
+  }
+
+  /** Sets a subscription's members from picked clients, in the given order. */
+  setClients(id: number, refs: ClientRef[]) {
+    this.subscriptionRow(id);
+    return this.setMembers(
+      id,
+      this.transaction(() => refs.map(ref => this.ensureNode(ref)))
+    );
+  }
+
   // ---- nodes
 
   listNodes(machineId?: number) {
@@ -214,10 +281,17 @@ export class Catalog {
     return { subscription, nodes: rows.map(nodeView) };
   }
 
-  createSubscription(name: string) {
+  createSubscription(name: string, clients: ClientRef[] = []) {
     const now = this.now();
-    const { id } = this.db.prepare('INSERT INTO subscriptions (name, token, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id').get(cleanName(name, true)!, randomToken(24), now, now) as { id: number };
-    return this.getSubscription(id);
+    const label = cleanName(name, true)!;
+    return this.transaction(() => {
+      const { id } = this.db.prepare('INSERT INTO subscriptions (name, token, created_at, updated_at) VALUES (?, ?, ?, ?) RETURNING id').get(label, randomToken(24), now, now) as { id: number };
+      const nodeIds = clients.map(ref => this.ensureNode(ref));
+      if (new Set(nodeIds).size !== nodeIds.length || nodeIds.length > membersLimit) throw new ApiError(400, 'INVALID_MEMBERS');
+      const insert = this.db.prepare('INSERT INTO subscription_nodes (subscription_id, node_id, position) VALUES (?, ?, ?)');
+      nodeIds.forEach((nodeId, position) => insert.run(id, nodeId, position));
+      return id;
+    });
   }
 
   renameSubscription(id: number, name: string) {
@@ -270,6 +344,11 @@ export class Catalog {
 
 const idParams = { type: 'object', required: ['id'], properties: { id: { type: 'integer', minimum: 1 } } } as const;
 const name = { type: 'string', maxLength: 256 } as const;
+const clientRefs = {
+  type: 'array',
+  maxItems: membersLimit,
+  items: { type: 'object', required: ['machineId', 'inboundId', 'email'], additionalProperties: false, properties: { machineId: { type: 'integer', minimum: 1 }, inboundId: { type: 'integer' }, email: { type: 'string', minLength: 1, maxLength: 256 } } }
+} as const;
 
 export function registerCatalog(app: FastifyInstance, catalog: Catalog) {
   app.get<{ Querystring: { machineId?: number } }>('/api/nodes', { schema: { querystring: { type: 'object', properties: { machineId: { type: 'integer', minimum: 1 } } } } }, req => ({ nodes: catalog.listNodes(req.query.machineId) }));
@@ -296,8 +375,9 @@ export function registerCatalog(app: FastifyInstance, catalog: Catalog) {
   });
 
   app.get('/api/subscriptions', () => ({ subscriptions: catalog.listSubscriptions() }));
-  app.post<{ Body: { name: string } }>('/api/subscriptions', { schema: { body: { type: 'object', required: ['name'], additionalProperties: false, properties: { name } } } }, async (req, reply) =>
-    reply.code(201).send(catalog.createSubscription(req.body.name))
+  app.get('/api/clients', () => ({ machines: catalog.clientTree() }));
+  app.post<{ Body: { name: string; clients?: ClientRef[] } }>('/api/subscriptions', { schema: { body: { type: 'object', required: ['name'], additionalProperties: false, properties: { name, clients: clientRefs } } } }, async (req, reply) =>
+    reply.code(201).send(catalog.getSubscription(catalog.createSubscription(req.body.name, req.body.clients)))
   );
   app.get<{ Params: { id: number } }>('/api/subscriptions/:id', { schema: { params: idParams } }, req => catalog.getSubscription(req.params.id));
   app.patch<{ Params: { id: number }; Body: { name: string } }>('/api/subscriptions/:id', { schema: { params: idParams, body: { type: 'object', required: ['name'], additionalProperties: false, properties: { name } } } }, req =>
@@ -307,6 +387,11 @@ export function registerCatalog(app: FastifyInstance, catalog: Catalog) {
     '/api/subscriptions/:id/nodes',
     { schema: { params: idParams, body: { type: 'object', required: ['nodeIds'], additionalProperties: false, properties: { nodeIds: { type: 'array', maxItems: membersLimit, items: { type: 'integer', minimum: 1 } } } } } },
     req => catalog.setMembers(req.params.id, req.body.nodeIds)
+  );
+  app.put<{ Params: { id: number }; Body: { clients: ClientRef[] } }>(
+    '/api/subscriptions/:id/clients',
+    { schema: { params: idParams, body: { type: 'object', required: ['clients'], additionalProperties: false, properties: { clients: clientRefs } } } },
+    req => catalog.setClients(req.params.id, req.body.clients)
   );
   app.post<{ Params: { id: number } }>('/api/subscriptions/:id/rotate', { schema: { params: idParams } }, req => catalog.rotateToken(req.params.id));
   app.delete<{ Params: { id: number } }>('/api/subscriptions/:id', { schema: { params: idParams } }, async (req, reply) => {

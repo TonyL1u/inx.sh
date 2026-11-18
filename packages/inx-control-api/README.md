@@ -58,29 +58,36 @@ Pairing failures return `400 INVALID_PAIR_CODE` or `502` with one of these error
 - `GATEWAY_RESPONSE`
 - a `PANEL_*` code passed through from the Gateway
 
-## Nodes and subscriptions
+## Subscriptions
 
-A **node** is one client of one inbound on one machine: the credential to hand out. The Gateway lists each inbound's clients with ready-made share links (see the [Gateway README](../inx-gateway/README.md#http-api)). Import nodes in the console's 「节点」 page; the default name is the machine plus the inbound remark, plus the client when the inbound has several.
+The console flow is: pair a machine, see its clients, tick clients from any machines, and get a subscription link. A freshly installed Gateway creates one VLESS + Reality client, so a new VPS has something to pick right after pairing.
 
-A **subscription** is an ordered list of nodes from any machines. A node can be in several subscriptions. `GET /sub/<token>` needs no session; the token is the credential. It returns the members' links, base64-encoded and newline-separated (the format Shadowrocket and v2rayN expect), renamed to the node names, in member order. It also sends a `profile-title` header with the subscription name, `profile-update-interval: 12`, and `Cache-Control: no-store`. When a node has several endpoints (external proxies), the extra links are numbered.
+Internally, each picked client becomes a **node**: one client of one inbound on one machine. A node is created on first pick and reused afterwards. It carries the display name used in every subscription that contains it. The default name is the machine plus the inbound remark, plus the client when the inbound has several. The console never shows nodes as a separate concept; a member's 重命名 renames its node.
 
-Subscriptions are rendered from each machine's last successful snapshot, so they keep working while a machine is unreachable. A node is skipped, but kept, while it is:
+`GET /sub/<token>` needs no session; the token is the credential.
+
+- **Format:** the members' links, base64-encoded and newline-separated (the format Shadowrocket and v2rayN expect), renamed to the node names, in member order.
+- **Headers:** `profile-title` with the subscription name, `profile-update-interval: 12`, and `Cache-Control: no-store`.
+- **Several endpoints:** when a node has several endpoints (external proxies), the extra links are numbered.
+
+Subscriptions are rendered from each machine's last successful snapshot, so they keep working while a machine is unreachable. A member is skipped, but kept, while it is:
 
 - `missing`: its inbound or client is gone from 3x-ui.
 - `disabled`: switched off in 3x-ui.
-- `unsupported`: the Gateway cannot build links for its protocol or transport.
+- `unsupported`: the Gateway cannot build links for it.
 - `unknown`: the Gateway predates client listing.
 
-Renaming a node or changing members takes effect at the same URL the next time a device refreshes. Rotating the token retires the old URL immediately. Deleting a machine deletes its nodes and removes them from subscriptions.
+Renaming or changing members takes effect at the same URL the next time a device refreshes. Rotating the token retires the old URL immediately. Deleting a machine removes its clients from every subscription.
 
 | Route (session required) | Purpose |
 | --- | --- |
-| `GET /api/nodes[?machineId=]` | Nodes with status, inbound, client and subscription count |
-| `POST /api/nodes` `{ machineId, inboundId, clientEmail, name? }` | Import. Errors: `NODE_EXISTS`, `INBOUND_NOT_FOUND`, `CLIENT_NOT_FOUND`, `GATEWAY_UPGRADE_REQUIRED` |
-| `PATCH /api/nodes/:id` `{ name }` / `DELETE /api/nodes/:id` | Rename / delete (also leaves every subscription) |
-| `GET/POST /api/subscriptions`, `GET/PATCH/DELETE /api/subscriptions/:id` | List, create `{ name }`, read with ordered nodes, rename, delete |
-| `PUT /api/subscriptions/:id/nodes` `{ nodeIds }` | Replace the members in order (unique, at most 500) |
+| `GET /api/clients` | Every machine's inbounds and clients, with `nodeId`/`nodeName` once picked, for the picker. No links |
+| `POST /api/subscriptions` `{ name, clients? }` | Create, optionally with members. `clients` is an ordered list of `{ machineId, inboundId, email }` |
+| `PUT /api/subscriptions/:id/clients` `{ clients }` | Replace the members by client, in order; nodes are created as needed |
+| `PUT /api/subscriptions/:id/nodes` `{ nodeIds }` | Replace the members by node ID, in order (used for reordering) |
+| `GET/PATCH/DELETE /api/subscriptions/:id`, `GET /api/subscriptions` | Read with ordered members, rename, delete, list |
 | `POST /api/subscriptions/:id/rotate` | New token |
+| `PATCH /api/nodes/:id` `{ name }` | Rename a picked client everywhere it is used. `GET/POST/DELETE /api/nodes` remain for scripting |
 
 `GET /api/machines/:id` lists each inbound's clients (email, enabled, link count, `unsupported`, imported `nodeId`) but never the links, plus `usage` (nodes and subscriptions that depend on the machine).
 
