@@ -1,6 +1,6 @@
 {
   "name": "@inx.sh/gateway",
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "description": "HTTPS gateway for managing a local 3x-ui panel from INX Connect",
   "type": "module",
   "bin": {
